@@ -131,46 +131,60 @@ export function renderDoubtSolver(container, { inferCourse, getCourseByCode, get
   // Web Speech API for Voice Search
   let isRecording = false;
   let recognition = null;
-  let textBeforeVoice = '';
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
-    recognition.continuous = false; // Auto-stop when user pauses
+    recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.lang = 'en-IN'; // Indian English for better local accent matching
+    recognition.lang = 'en-IN';
 
     recognition.onstart = () => {
       isRecording = true;
-      textBeforeVoice = doubtInput.value.trim() ? doubtInput.value.trim() + ' ' : '';
+      doubtVoice.style.background = 'var(--accent-rose)';
+      doubtVoice.style.color = '#fff';
+      doubtVoice.style.borderColor = 'var(--accent-rose)';
+      doubtVoice.innerHTML = '🛑';
       doubtInput.placeholder = "Listening... Speak now.";
     };
 
     recognition.onresult = (e) => {
-      let transcript = '';
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        transcript += e.results[i][0].transcript;
-      }
-      doubtInput.value = textBeforeVoice + transcript;
+      const transcript = Array.from(e.results)
+        .map(result => result[0])
+        .map(result => result.transcript)
+        .join('');
+      doubtInput.value = transcript;
     };
 
     recognition.onerror = (e) => {
       console.warn("Speech recognition error:", e.error);
+      stopRecording();
       if (e.error !== 'no-speech') {
         doubtInput.placeholder = "Failed to hear. " + e.error;
       }
-      stopRecording();
     };
 
     recognition.onend = () => {
       stopRecording();
     };
+
+    doubtVoice.addEventListener('click', () => {
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        try {
+          recognition.start();
+        } catch (err) {
+          console.error(err);
+          stopRecording();
+        }
+      }
+    });
   } else {
     doubtVoice.style.display = 'none';
   }
 
   function stopRecording() {
-    if (!isRecording) return;
     isRecording = false;
     if (recognition) {
       try { recognition.stop(); } catch (e) { }
@@ -181,28 +195,6 @@ export function renderDoubtSolver(container, { inferCourse, getCourseByCode, get
     doubtVoice.innerHTML = '🎤';
     doubtInput.placeholder = "Type your doubt here... (or use voice)";
   }
-
-  doubtVoice.addEventListener('click', () => {
-    if (!recognition) return alert("Voice search is not supported by your browser. Please use Chrome/Edge.");
-
-    if (isRecording) {
-      stopRecording();
-    } else {
-      isRecording = true;
-      doubtVoice.style.background = 'var(--accent-rose)';
-      doubtVoice.style.color = '#fff';
-      doubtVoice.style.borderColor = 'var(--accent-rose)';
-      doubtVoice.innerHTML = '🛑';
-      doubtInput.placeholder = "Starting microphone...";
-
-      try {
-        recognition.start();
-      } catch (e) {
-        console.warn("Could not start recognition:", e);
-        stopRecording();
-      }
-    }
-  });
 
   doubtSend.addEventListener('click', () => sendDoubt(doubtInput.value));
   doubtInput.addEventListener('keydown', (e) => {

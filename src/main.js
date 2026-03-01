@@ -77,6 +77,60 @@ function setupEventListeners() {
         const current = document.documentElement.getAttribute('data-theme');
         document.documentElement.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
     });
+
+    // Global Voice Search
+    const globalVoice = document.getElementById('global-voice');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition && globalVoice) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-IN';
+
+        let isRecording = false;
+
+        recognition.onstart = () => {
+            isRecording = true;
+            globalVoice.classList.add('recording');
+            searchInput.placeholder = "Listening...";
+        };
+
+        recognition.onresult = (e) => {
+            const transcript = Array.from(e.results)
+                .map(result => result[0])
+                .map(result => result.transcript)
+                .join('');
+            searchInput.value = transcript;
+            handleSearch();
+        };
+
+        recognition.onend = () => {
+            isRecording = false;
+            globalVoice.classList.remove('recording');
+            searchInput.placeholder = "Search topics, courses...";
+        };
+
+        recognition.onerror = (e) => {
+            console.error("Speech error", e.error);
+            isRecording = false;
+            globalVoice.classList.remove('recording');
+        };
+
+        globalVoice.addEventListener('click', () => {
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                try {
+                    recognition.start();
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+        });
+    } else if (globalVoice) {
+        globalVoice.style.display = 'none';
+    }
 }
 
 function buildSemesterNav() {

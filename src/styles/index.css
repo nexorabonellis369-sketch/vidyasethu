@@ -297,6 +297,28 @@ body {
   color: var(--text-muted);
 }
 
+.voice-search-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 4px;
+  transition: color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-search-btn:hover {
+  color: var(--accent-purple);
+}
+
+.voice-search-btn.recording {
+  color: var(--accent-rose);
+  animation: pulse 1.5s infinite;
+}
+
 .search-results {
   position: absolute;
   top: 100%;
