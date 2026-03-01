@@ -541,26 +541,27 @@ MANDATORY CONTENT INCLUSION:
     return clean;
   }
 
+  let errorDetails = [];
+
   // ── 1. Puter.js — Claude 3.7 Sonnet (best, free) ────────────────────────
-  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini'];
+  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet'];
   for (const model of puterModels) {
     try {
       if (typeof puter !== 'undefined' && puter.ai) {
         const resp = await puter.ai.chat(messages, { model });
         const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
         if (text && text.length > 30) {
-          console.log(`DoubtSolver - Success with puter model: ${model}`);
           return contextHeader + cleanHtml(text);
         }
       }
     } catch (e) {
-      console.warn(`DoubtSolver - Puter ${model} failed:`, e.message);
+      errorDetails.push(`Puter (${model}): ${e.message || 'Error'}`);
     }
   }
 
   // ── 2. Gemini API ────────────────────────────────────────────────────────
   const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
+  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"];
   for (const model of GEMINI_MODELS) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
@@ -575,35 +576,44 @@ MANDATORY CONTENT INCLUSION:
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text && text.length > 30) {
-          console.log(`DoubtSolver - Success with Gemini: ${model}`);
           return contextHeader + cleanHtml(text);
         }
+      } else {
+        errorDetails.push(`Gemini (${model}): ${res.status}`);
       }
     } catch (e) {
-      console.warn(`DoubtSolver - Gemini ${model} error:`, e.message);
+      errorDetails.push(`Gemini (${model}): Network Error`);
     }
   }
 
   // ── 3. Pollinations fallback ─────────────────────────────────────────────
-  for (const model of ["openai", "openai-large"]) {
+  for (const model of ["openai", "mistral"]) {
     try {
-      // Ensure we only send text to Pollinations, as its endpoint may reject vision payload objects
       const fallbackMessages = [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage }
       ];
-      const res = await fetch("https://text.pollinations.ai/openai", {
+      const res = await fetch("https://text.pollinations.ai/", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: fallbackMessages, temperature: 0.2 })
+        body: JSON.stringify({ model: model, messages: fallbackMessages, seed: 42 })
       });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const text = cleanHtml(data.choices?.[0]?.message?.content || '');
-      if (text.length > 30) return contextHeader + text;
+      if (res.ok) {
+        const text = await res.text();
+        if (text.length > 10) return contextHeader + cleanHtml(text);
+      } else {
+        errorDetails.push(`Pollinations (${model}): ${res.status}`);
+      }
     } catch (e) {
-      console.warn(`DoubtSolver - Pollinations ${model} error:`, e.message);
+      errorDetails.push(`Pollinations (${model}): ${e.message}`);
     }
   }
 
-  throw new Error("All AI services are currently unavailable. Please try again in a moment.");
+  return `<div class="card" style="padding:16px; border: 1px solid var(--accent-rose); color: var(--accent-rose);">
+    <div style="font-weight:bold;margin-bottom:8px;">⚠️ Connection to "Vidhyasethu" AI Failed</div>
+    <div style="font-size:0.75rem; background:rgba(0,0,0,0.1); padding:8px; border-radius:4px; margin-bottom:10px; font-family:monospace;">
+      <strong>Error Trace:</strong><br>
+      ${errorDetails.slice(0, 3).join('<br>')}
+    </div>
+    <p style="font-size:0.85rem; color:var(--text-secondary);">The research servers are currently overloaded. Please try again in 30 seconds.</p>
+  </div>`;
 }
