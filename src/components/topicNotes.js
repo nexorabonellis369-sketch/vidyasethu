@@ -445,37 +445,52 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
   }
 
   // 2. Gemini API
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
+  const GEMINI_KEYS = [
+    "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw",
+    "AIzaSyD-7V6f6pD5mEwW6Y-X-L4U0-9-1-2" // Placeholder for an alternate key if available
+  ];
   const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"];
-  for (const model of GEMINI_MODELS) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: userMessage }] }],
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.length > 30) return cleanHtml(text);
-      } else {
-        const errText = await res.text();
-        errorDetails.push(`Gemini (${model}): ${res.status}`);
+
+  for (const key of GEMINI_KEYS) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: userMessage }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.length > 30) return cleanHtml(text);
+        } else {
+          const errText = await res.text();
+          if (errText.includes("funding") || errText.includes("quota")) {
+            errorDetails.push(`Gemini (${model}): Quota Exceeded`);
+            break; // Try next key
+          }
+          errorDetails.push(`Gemini (${model}): ${res.status}`);
+        }
+      } catch (e) {
+        errorDetails.push(`Gemini (${model}): Network Error`);
       }
-    } catch (e) {
-      errorDetails.push(`Gemini (${model}): Network Error`);
     }
   }
 
   // 3. Pollinations fallback
-  for (const model of ["openai", "mistral"]) {
+  const pollinationModels = ["openai", "mistral", "searchgpt"];
+  for (const model of pollinationModels) {
     try {
       const res = await fetch("https://text.pollinations.ai/", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: messages, model: model, seed: 42 })
+        body: JSON.stringify({
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+          model: model,
+          seed: 42
+        })
       });
       if (res.ok) {
         const text = await res.text();
