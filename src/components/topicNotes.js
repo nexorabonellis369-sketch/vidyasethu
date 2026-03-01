@@ -408,21 +408,21 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
     // Auto-fix mathematical superscripts (e.g. x^2 -> x<sup>2</sup>)
     clean = clean.replace(/([a-zA-Z0-9)])\^([a-zA-Z0-9]+)/g, '$1<sup>$2</sup>');
 
-    // WIKI_DIAGRAM → AI-generated SVG technical diagram (rendered later by renderWikiDiagrams())
+    // WIKI_DIAGRAM → AI-generated SVG technical diagram
     clean = clean.replace(/!?\[WIKI_DIAGRAM:\s*(.+?)\]/gi, (match, query) => {
       const safeQuery = query.trim().replace(/[^a-zA-Z0-9\s]/g, '');
       const uniqueId = 'wiki-img-' + Math.floor(Math.random() * 9999999);
       return `<div id="${uniqueId}" class="wiki-diagram-slot" data-query="${safeQuery}" data-type="diagram" style="text-align:center;margin:24px 0;padding:16px;font-size:0.9rem;color:var(--text-secondary);">📐 Generating diagram for "${safeQuery}"…</div>`;
     });
 
-    // REAL_PHOTO → Wikimedia Commons photo search (rendered later by renderWikiDiagrams())
+    // REAL_PHOTO → Wikimedia Commons photo search
     clean = clean.replace(/!?\[REAL_PHOTO:\s*(.+?)\]/gi, (match, query) => {
       const safeQuery = query.trim().replace(/[^a-zA-Z0-9\s]/g, '');
       const uniqueId = 'wiki-img-' + Math.floor(Math.random() * 9999999);
       return `<div id="${uniqueId}" class="wiki-diagram-slot" data-query="${safeQuery}" data-type="photo" style="text-align:center;margin:24px 0;padding:16px;font-size:0.9rem;color:var(--text-secondary);">📷 Loading real-world photo for "${safeQuery}"…</div>`;
     });
 
-    // In case the AI still outputs markdown mermaid blocks
+    // mermaid blocks
     clean = clean.replace(/```mermaid\s*([\s\S]*?)```/gi, '<pre class="mermaid" style="text-align:center; margin: 24px 0;">\n$1\n</pre>');
 
     return clean;
@@ -430,8 +430,31 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
 
   let errorDetails = [];
 
-  // 1. Puter.js
-  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini'];
+  // 1. Pollinations (Free, Primary Source) ──────────────────────────────
+  const pollinationModels = ["openai", "mistral", "searchgpt"];
+  for (const model of pollinationModels) {
+    try {
+      const res = await fetch("https://text.pollinations.ai/", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+          seed: 42
+        })
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.length > 30) return cleanHtml(text);
+      } else {
+        errorDetails.push(`Pollinations (${model}): ${res.status}`);
+      }
+    } catch (e) {
+      errorDetails.push(`Pollinations (${model}): ${e.message}`);
+    }
+  }
+
+  // 2. Puter.js (Fallback 1) ────────────────────────────────────────────────
+  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet'];
   for (const model of puterModels) {
     try {
       if (typeof puter !== 'undefined' && puter.ai) {
@@ -444,62 +467,34 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
     }
   }
 
-  // 2. Gemini API
-  const GEMINI_KEYS = [
-    "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw",
-    "AIzaSyD-7V6f6pD5mEwW6Y-X-L4U0-9-1-2" // Placeholder for an alternate key if available
-  ];
-  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"];
+  // 3. Gemini API (Fallback 2) ──────────────────────────────────────────────
+  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
+  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-2.0-flash-lite-preview-02-05"];
 
-  for (const key of GEMINI_KEYS) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: userMessage }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text && text.length > 30) return cleanHtml(text);
-        } else {
-          const errText = await res.text();
-          if (errText.includes("funding") || errText.includes("quota")) {
-            errorDetails.push(`Gemini (${model}): Quota Exceeded`);
-            break; // Try next key
-          }
-          errorDetails.push(`Gemini (${model}): ${res.status}`);
-        }
-      } catch (e) {
-        errorDetails.push(`Gemini (${model}): Network Error`);
-      }
-    }
-  }
-
-  // 3. Pollinations fallback
-  const pollinationModels = ["openai", "mistral", "searchgpt"];
-  for (const model of pollinationModels) {
+  for (const model of GEMINI_MODELS) {
     try {
-      const res = await fetch("https://text.pollinations.ai/", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
-          model: model,
-          seed: 42
+          contents: [{ parts: [{ text: userMessage }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
         })
       });
       if (res.ok) {
-        const text = await res.text();
-        if (text.length > 30) return cleanHtml(text);
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && text.length > 30) return cleanHtml(text);
       } else {
-        errorDetails.push(`Pollinations (${model}): ${res.status}`);
+        const errText = await res.text();
+        if (errText.includes("funding") || errText.includes("quota") || res.status === 429) {
+          errorDetails.push(`Gemini (${model}): Limit reached`);
+          break;
+        }
+        errorDetails.push(`Gemini (${model}): ${res.status}`);
       }
     } catch (e) {
-      errorDetails.push(`Pollinations (${model}): ${e.message}`);
+      errorDetails.push(`Gemini (${model}): Network Error`);
     }
   }
 
