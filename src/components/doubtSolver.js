@@ -373,7 +373,6 @@ async function generateSolution(query, match, getCourseByCode, getPrerequisites,
 
   const systemPrompt = `You are "Vidhyasethu", a highly intelligent AI academic tutor for PSG College of Technology students. 
         Your goal is to explain concepts clearly, solve problems step-by-step, and provide textbook/syllabus references.
-ady explanation.
 
 ${SYMBOL_RULES}
 
