@@ -1,0 +1,9 @@
+node_modules/
+.antigravity/
+*.log
+.DS_Store
+Thumbs.db
+dist/
+*.ps1
+*.bat
+*.txt
