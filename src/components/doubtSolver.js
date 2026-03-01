@@ -370,39 +370,39 @@ ${SYMBOL_RULES}
 
 CRITICAL FORMATTING — Output ONLY raw HTML (never markdown):
 1. NEVER output Markdown (**bold** or ![]() images). YOU MUST OUTPUT STRICTLY RAW HTML (<strong>, <img>).
-2. Section headings: <h3>📐 Heading</h3>
-3. Derivations — STRICT 3-PART FORMAT for every step:
-   PART A: bold label — one sentence stating the mathematical action ('Start with energy conservation', 'Divide both sides by m', 'Substitute v=u+at into...')
-   PART B: the equation for THIS step only in a formula-block. ONE equation per step only.
-   PART C: plain English sentence starting with => explaining WHY this step is valid and what it physically means. Use an everyday analogy.
-   Rule: NEVER dump multiple equations in one block without explanation.
-4. Formulas — Every formula must have a variable legend table immediately below it:
-   Each row shows: symbol | full name | unit | plain-English meaning.
-   Example: x = displacement (metres, m) = how far the object moved from its starting position.
-   Use the formula-block div for the equation, and a simple table below for the variables.
-5. Tips: <div class="callout callout-info"><div class="callout-icon">💡</div><div>tip</div></div>
-6. Warnings: <div class="callout callout-warning"><div class="callout-icon">⚠️</div><div>warning</div></div>
-7. Code: <div class="code-block">code</div>
-8. Paragraphs: <p>text</p>
-9. Visuals: You MUST include 1-2 visuals per answer. Choose the best type:
+2. Layout — Use premium note-taking structures:
 
-   TYPE A — Technical Diagram (graphs, circuits, force diagrams, schematics):
-   [WIKI_DIAGRAM: SHM displacement-time graph]
+   A. CORNELL METHOD (for definitions/concepts):
+      <div class="cornell-layout">
+        <div class="cornell-cues">Conceptual Cue</div>
+        <div class="cornell-notes">Detailed Explanation</div>
+      </div>
 
-   TYPE B — Real-World Photo (for real machines, devices, instruments, phenomena):
-   [REAL_PHOTO: grandfather clock pendulum]
+   B. FLOW NOTES (for step-by-step logic):
+      <div class="flow-container">
+        <div class="flow-box">Initial State</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-box">Result</div>
+      </div>
 
-   DECISION RULE: ABSTRACT concept (graph, derivation) → use [WIKI_DIAGRAM]. FAMILIAR REAL OBJECT → use [REAL_PHOTO].
-   Do NOT write <img> tags or SVG directly.
+   C. BULLET JOURNALING (for key takeaways):
+      <ul class="bujo-list">
+        <li class="bujo-item"><span class="bujo-symbol">★</span><div class="bujo-text">Important Rule</div></li>
+        <li class="bujo-item"><span class="bujo-symbol">▲</span><div class="bujo-text">Example Application</div></li>
+      </ul>
+
+3. Typography:
+   - Use <div class="aesthetic-header"><h3>📐 Section Title</h3></div> for primary sections.
+   - Use <p class="key-idea">One key idea per line.</p>
+   - Highlight terms: <span class="hl-cyan">Term</span>, <span class="hl-purple">Term</span>, <span class="hl-amber">Term</span>.
+
+4. Formulas: Use <div class="formula-block"> with a variable legend table immediately below.
+5. Visuals: Include 1-2 visuals using [WIKI_DIAGRAM: ...] or [REAL_PHOTO: ...].
 
 MANDATORY CONTENT INCLUSION:
-- Explain using simple, everyday language with a relatable analogy.
-- Show clear visual diagrams using [WIKI_DIAGRAM] or [REAL_PHOTO] — placed right where they help most.
-- Include all key formulas in <div class="formula-block">.
-- Provide at least 1 solved numerical example using <div class="step"> format.
-- End with a quick Key Points summary.
-
-Cover: simple definition → real photo/diagram → formula → intuitive explanation → example sum → key points.`;
+- Use Cornell Layout for the initial explanation.
+- Use Flow Notes for derivations/processes.
+- End with a Bujo-style Key Points summary.`;
 
   let userMessage = `Student Doubt: ${query}`;
 

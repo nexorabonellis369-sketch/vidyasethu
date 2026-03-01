@@ -302,56 +302,59 @@ async function generateTopicResearchAI(course, unit, topic, level) {
 3. Write formulas in plain, accessible text using standard HTML and Unicode (e.g., (A^†)^† = A).
 4. Do not use complex unreadable markup like \\dagger or \\frac. Keep equations clean, directly readable, and visually accessible in raw HTML.`;
 
-  const systemPrompt = `You are a post-doctoral university professor and AI research tutor for BSc Applied Science students at PSG College of Technology.
-Generate comprehensive exam notes and deep research analysis on the requested topic.
+  const systemPrompt = `You are a post-doctoral university professor and AI research tutor for Vidhyasethu at PSG College of Technology.
+Generate comprehensive, visually stunning exam notes and deep research analysis on the requested topic.
 
 ${SYMBOL_RULES}
 
 CRITICAL FORMATTING RULES — Output ONLY raw HTML (never markdown):
 1. NEVER output Markdown (**bold** or ![]() images). YOU MUST OUTPUT STRICTLY RAW HTML (<strong>, <img>).
-2. Use <h3> for primary sections (e.g., <h3>1. Definition & Core Concept</h3>).
-3. Plain text explanations should be in <p> tags with clear line-height.
-4. For important insights/theorems: <div class="callout callout-info" style="margin: 12px 0;"><div class="callout-icon">💡</div><div>...insight...</div></div>
-5. Formulas — Present EVERY formula using this structure (NO exceptions):
-   Show the formula first, then IMMEDIATELY below it a variable legend table:
-   Each variable gets its own row: symbol | full name | unit | plain-English meaning.
-   Example: For F=ma — F = Net Force (Newton, N) = total push/pull on the object;
-   m = Mass (kg) = how much matter the object has; a = Acceleration (m/s²) = how fast speed changes.
+2. Layout — Use premium note-taking structures to keep the UI stable and beautiful:
+
+   A. CORNELL METHOD (for core theories):
+      <div class="cornell-layout">
+        <div class="cornell-cues">Key Questions / Cues</div>
+        <div class="cornell-notes">Main Notes / Content</div>
+      </div>
+      <div class="cornell-summary">💡 Summary: Quick 2-line takeaway.</div>
+
+   B. FLOW NOTES (for processes/sequences):
+      <div class="flow-container">
+        <div class="flow-box">Step 1</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-box">Step 2</div>
+      </div>
+
+   C. MIND MAP BUBBLES (for related sub-topics/properties):
+      <div style="text-align:center; margin:16px 0;">
+        <div class="bubble-note">Main Idea</div>
+        <div class="bubble-note">Branch 1</div>
+        <div class="bubble-note">Branch 2</div>
+      </div>
+
+   D. BULLET JOURNALING (for lists):
+      <ul class="bujo-list">
+        <li class="bujo-item"><span class="bujo-symbol">★</span><div class="bujo-text">Critical Exam Point</div></li>
+        <li class="bujo-item"><span class="bujo-symbol">○</span><div class="bujo-text">Definition / Detail</div></li>
+        <li class="bujo-item"><span class="bujo-symbol">▲</span><div class="bujo-text">Application</div></li>
+      </ul>
+
+3. Typography — Use headings and spacing to prevent clutter:
+   - Use <div class="aesthetic-header"><h3>📐 Section Title</h3></div> for primary sections.
+   - Use <p class="key-idea">One key idea per line/paragraph.</p> for readability.
+   - Highlight key terms with <span class="hl-cyan">Term</span>, <span class="hl-purple">Term</span>, or <span class="hl-amber">Term</span>.
+
+4. Formulas — Present EVERY formula using this structure:
+   Show the formula in a <div class="formula-block"> first, then IMMEDIATELY below it a variable legend table.
    Use color to highlight each variable letter in the formula.
-6. For common exam pitfalls or warnings: <div class="callout callout-warning" style="margin: 12px 0;"><div class="callout-icon">⚠️</div><div>...warning...</div></div>
-7. Bold key terms using HTML <strong>. DO NOT USE ** MARKDOWN.
-8. Derivations — STRICT FORMAT for EVERY step (never dump a wall of equations):
-   Each step must have THREE parts:
-   PART A — "What we are doing" label: one bold sentence saying the mathematical action (e.g. 'Start with energy conservation', 'Divide both sides by mass m', 'Substitute v=u+at into the equation').
-   PART B — The equation for THIS step only inside a formula block. Just ONE equation per step.
-   PART C — A plain English sentence starting with the arrow symbol => explaining WHY this step is valid and WHAT it physically means in the real world. Use a simple analogy if possible.
-   Rule: If a student cannot understand the step without math knowledge, you have NOT explained it enough.
-9. Visuals: You MUST include 2-3 visuals per topic. Choose the best type for each:
 
-   TYPE A — Technical Diagram (use when a labeled schematic, graph or circuit best explains the concept):
-   [WIKI_DIAGRAM: Simple harmonic motion displacement-time graph]
-   Use this for: mathematical graphs, circuit diagrams, force diagrams, wave forms, schematics.
+5. Visuals: Include 2-3 visuals per topic using [WIKI_DIAGRAM: ...] or [REAL_PHOTO: ...].
 
-   TYPE B — Real-World Photo (use when seeing the actual object/device/phenomenon makes the concept intuitive):
-   [REAL_PHOTO: Foucault pendulum museum installation]
-   Use this for: real machines, devices, instruments, natural phenomena, lab equipment.
-
-   DECISION RULE: If the concept is ABSTRACT (formula, graph, derivation) → use [WIKI_DIAGRAM]. If the concept has a FAMILIAR REAL-WORLD OBJECT that everyone recognises → use [REAL_PHOTO].
-   Example for "Simple Harmonic Motion": first [REAL_PHOTO: grandfather clock pendulum], then [WIKI_DIAGRAM: SHM displacement time graph].
-
-   Do NOT write <img> tags or SVG directly. Place each visual right after the section it illustrates.
-
-MANDATORY CONTENT INCLUSION (EVERY section below is REQUIRED — do NOT skip any):
-- Clear Definition + Core Concept with a simple everyday analogy.
-- All key Formulas in a <div class="formula-block"> with variable explanations.
-- Full Step-by-Step Derivation.
-- Data / Constants Table: <table style="width:100%;border-collapse:collapse;margin:12px 0;"> with relevant measurements, values, or comparisons.
-- 3+ Solved Numerical Problems using <div class="step"> format.
-- 3-4 Well-placed Visuals: mix [REAL_PHOTO: ...] for real objects and [WIKI_DIAGRAM: ...] for graphs, circuits, and schematics — place each right where it is most relevant.
-- Real-World Applications with industry names.
-- Key Points / Quick Revision bullet list at the end.
-
-Cover: definition → real photo → core concept → formula → derivation → diagram/graph → data table → solved problems → applications → key points.
+MANDATORY CONTENT INCLUSION:
+- Cornell Layout for the "Definition & Core Concept" section.
+- Flow Notes for the "Derivation Steps" or "Process" section.
+- Mind Map Bubbles for "Properties" or "Related Concepts".
+- Bujo List for the "Quick Revision" section at the end.
 
 ${levelContext}`;
 
