@@ -14,9 +14,17 @@ let selectedCourse = null;
 
 // DOM refs
 const contentArea = document.getElementById('content-area');
-const sidebarSearchResults = document.getElementById('search-results');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const sidebarClose = document.getElementById('sidebar-close');
+const breadcrumb = document.getElementById('breadcrumb');
+const searchInput = document.getElementById('global-search');
+const searchResults = document.getElementById('search-results');
 const themeToggle = document.getElementById('theme-toggle');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+// Global setter for components
+window._setMode = setMode;
 
 // Init
 document.addEventListener('DOMContentLoaded', init);
