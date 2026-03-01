@@ -1,4 +1,5 @@
 async function testGemini() {
+    console.log("Starting Gemini API test...");
     const key = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
     const models = [
         "gemini-1.5-flash",

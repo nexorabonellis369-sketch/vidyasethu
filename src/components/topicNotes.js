@@ -428,69 +428,74 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
     return clean;
   }
 
-  // 1. Puter.js — Claude 3.7 Sonnet (Best for deep research + structured HTML)
+  let errorDetails = [];
+
+  // 1. Puter.js
   const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini'];
   for (const model of puterModels) {
     try {
       if (typeof puter !== 'undefined' && puter.ai) {
         const resp = await puter.ai.chat(messages, { model });
         const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-        if (text && text.length > 50) {
-          console.log(`TopicNotes - Success with puter model: ${model}`);
-          return cleanHtml(text);
-        }
+        if (text && text.length > 50) return cleanHtml(text);
       }
     } catch (e) {
-      console.warn(`TopicNotes - Puter ${model} failed:`, e.message);
+      errorDetails.push(`Puter (${model}): ${e.message}`);
     }
   }
 
-  // 2. Gemini API — Upgraded model priority
+  // 2. Gemini API
   const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"];
+  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"];
   for (const model of GEMINI_MODELS) {
     try {
-      const payload = {
-        contents: [{ parts: [{ text: userMessage }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
-      };
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: userMessage }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
+        })
       });
       if (res.ok) {
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.length > 30) {
-          console.log(`TopicNotes - Success with Gemini model: ${model}`);
-          return cleanHtml(text);
-        }
+        if (text && text.length > 30) return cleanHtml(text);
+      } else {
+        const errText = await res.text();
+        errorDetails.push(`Gemini (${model}): ${res.status}`);
       }
     } catch (e) {
-      console.warn(`TopicNotes - Gemini ${model} error:`, e.message);
+      errorDetails.push(`Gemini (${model}): Network Error`);
     }
   }
 
   // 3. Pollinations fallback
-  for (const model of ["openai", "openai-large"]) {
+  for (const model of ["openai", "mistral"]) {
     try {
-      const res = await fetch("https://text.pollinations.ai/openai", {
+      const res = await fetch("https://text.pollinations.ai/", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages, temperature: 0.2 })
+        body: JSON.stringify({ messages: messages, model: model, seed: 42 })
       });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const text = cleanHtml(data.choices?.[0]?.message?.content || '');
-      if (text.length > 30) return text;
+      if (res.ok) {
+        const text = await res.text();
+        if (text.length > 30) return cleanHtml(text);
+      } else {
+        errorDetails.push(`Pollinations (${model}): ${res.status}`);
+      }
     } catch (e) {
-      console.warn(`TopicNotes - Pollinations ${model} error:`, e.message);
+      errorDetails.push(`Pollinations (${model}): ${e.message}`);
     }
   }
 
   return `<div class="card" style="padding:16px;color:var(--accent-rose); border: 1px solid var(--accent-rose);">
     <div style="font-weight:bold;margin-bottom:8px;">⚠️ Live Research Generation Failed</div>
-    <p style="font-size:0.9rem;opacity:0.9;">All AI research providers are currently busy or unavailable. We attempted 6 different AI models but none responded successfully.</p>
-    <p style="font-size:0.9rem;opacity:0.9;margin-top:8px;">Please refer to the "Reference Book Search" and "Quick Exam Guide" sections below, and try generating deep notes again in a few minutes.</p>
+    <p style="font-size:0.9rem;opacity:0.9;">All AI research providers are currently busy or unavailable.</p>
+    <div style="font-size:0.75rem; background:rgba(0,0,0,0.1); padding:8px; border-radius:4px; margin-top:10px; font-family:monospace;">
+      <strong>Error Trace:</strong><br>
+      ${errorDetails.slice(0, 5).join('<br>')}
+    </div>
+    <p style="font-size:0.8rem;opacity:0.9;margin-top:10px;">Please check your internet connection or try again in a few minutes.</p>
   </div>`;
 }
 
