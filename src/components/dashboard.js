@@ -4,7 +4,7 @@ export function renderDashboard(container, { allSemesters, getStats, setMode }) 
   container.innerHTML = `
     <div class="animate-fade">
       <div class="dashboard-hero">
-        <h1>BSc Applied Science Companion</h1>
+        <h1>Vidhyasethu</h1>
         <p>Your AI-powered academic companion for PSG College of Technology · 2024 Regulations. Get topic notes, solve doubts, plan your exams, and explore real-world applications — all mapped to your official syllabus.</p>
         <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="window._setMode('doubt_solver')">🧠 Ask a Doubt</button>

@@ -1,4 +1,4 @@
-// BSc Applied Science Companion - Main Application
+// Vidhyasethu - BSc Applied Science Companion
 import { allSemesters, getAllCourses, searchTopics, inferCourse, getCourseByCode, getPrerequisites, getCrossConnections, getTextbookRef, getLabCourses, getStats } from './engine/courseMapper.js';
 import { renderDashboard } from './components/dashboard.js';
 import { renderTopicNotes } from './components/topicNotes.js';
@@ -14,13 +14,9 @@ let selectedCourse = null;
 
 // DOM refs
 const contentArea = document.getElementById('content-area');
-const sidebar = document.getElementById('sidebar');
-const sidebarToggle = document.getElementById('sidebar-toggle');
-const sidebarClose = document.getElementById('sidebar-close');
-const breadcrumb = document.getElementById('breadcrumb');
-const searchInput = document.getElementById('global-search');
-const searchResults = document.getElementById('search-results');
+const sidebarSearchResults = document.getElementById('search-results');
 const themeToggle = document.getElementById('theme-toggle');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
 
 // Init
 document.addEventListener('DOMContentLoaded', init);
@@ -38,14 +34,22 @@ function init() {
 
 function setupEventListeners() {
     // Sidebar toggle (mobile)
-    sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-    sidebarClose.addEventListener('click', () => sidebar.classList.remove('open'));
+    const toggleSidebar = (show) => {
+        const isOpen = show !== undefined ? show : !sidebar.classList.contains('open');
+        sidebar.classList.toggle('open', isOpen);
+        sidebarOverlay.classList.toggle('active', isOpen);
+        document.body.style.overflow = isOpen ? 'hidden' : '';
+    };
+
+    sidebarToggle.addEventListener('click', () => toggleSidebar());
+    sidebarClose.addEventListener('click', () => toggleSidebar(false));
+    sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
 
     // Mode navigation
     document.querySelectorAll('.nav-item[data-mode]').forEach(btn => {
         btn.addEventListener('click', () => {
             setMode(btn.dataset.mode);
-            sidebar.classList.remove('open');
+            if (window.innerWidth <= 768) toggleSidebar(false);
         });
     });
 

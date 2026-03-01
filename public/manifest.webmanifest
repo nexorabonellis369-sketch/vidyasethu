@@ -1,0 +1,21 @@
+{
+    "name": "Vidhyasethu",
+    "short_name": "Vidhyasethu",
+    "description": "BSc Applied Science Companion - PSG College of Technology",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0e1a",
+    "theme_color": "#06b6d4",
+    "icons": [
+        {
+            "src": "/src/assets/logo.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/src/assets/logo.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

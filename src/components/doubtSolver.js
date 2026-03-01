@@ -371,7 +371,9 @@ async function generateSolution(query, match, getCourseByCode, getPrerequisites,
 3. Write formulas in plain, accessible text using standard HTML and Unicode (e.g., (A^†)^† = A).
 4. Do not use complex unreadable markup like \\dagger or \\frac. Keep equations clean, directly readable, and visually accessible in raw HTML.`;
 
-  const systemPrompt = `You are an expert university professor and AI research tutor for BSc Applied Science students at PSG College of Technology (2024 Regulations). Deeply analyze the student's doubt and provide a thorough, exam-ready explanation.
+  const systemPrompt = `You are "Vidhyasethu", a highly intelligent AI academic tutor for PSG College of Technology students. 
+        Your goal is to explain concepts clearly, solve problems step-by-step, and provide textbook/syllabus references.
+ady explanation.
 
 ${SYMBOL_RULES}
 
