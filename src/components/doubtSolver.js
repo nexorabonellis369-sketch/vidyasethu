@@ -543,25 +543,44 @@ MANDATORY CONTENT INCLUSION:
 
   let errorDetails = [];
 
-  // ── 1. Puter.js — Claude 3.7 Sonnet (best, free) ────────────────────────
+  // ── 1. Pollinations (Free, Primary) ───────────────────────────────────
+  const pollinationModels = ["openai", "mistral"];
+  for (const model of pollinationModels) {
+    try {
+      const res = await fetch("https://text.pollinations.ai/", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+          seed: 42
+        })
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.length > 10) return contextHeader + cleanHtml(text);
+      } else {
+        errorDetails.push(`Pollinations (${model}): ${res.status}`);
+      }
+    } catch (e) {
+      errorDetails.push(`Pollinations (${model}): ${e.message}`);
+    }
+  }
+
+  // ── 2. Puter.js (Fallback 1) ──────────────────────────────────────────
   const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet'];
   for (const model of puterModels) {
     try {
       if (typeof puter !== 'undefined' && puter.ai) {
         const resp = await puter.ai.chat(messages, { model });
         const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-        if (text && text.length > 30) {
-          return contextHeader + cleanHtml(text);
-        }
+        if (text && text.length > 30) return contextHeader + cleanHtml(text);
       }
-    } catch (e) {
-      errorDetails.push(`Puter (${model}): ${e.message || 'Error'}`);
-    }
+    } catch (e) { errorDetails.push(`Puter (${model}): ${e.message || 'Error'}`); }
   }
 
-  // ── 2. Gemini API ────────────────────────────────────────────────────────
+  // ── 3. Gemini API (Fallback 2) ────────────────────────────────────────
   const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"];
+  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-2.0-flash-lite-preview-02-05"];
   for (const model of GEMINI_MODELS) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
@@ -575,37 +594,16 @@ MANDATORY CONTENT INCLUSION:
       if (res.ok) {
         const data = await res.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.length > 30) {
-          return contextHeader + cleanHtml(text);
-        }
+        if (text && text.length > 30) return contextHeader + cleanHtml(text);
       } else {
+        const errText = await res.text();
+        if (errText.includes("funding") || errText.includes("quota") || res.status === 429) {
+          errorDetails.push(`Gemini (${model}): Limit Reached`);
+          break;
+        }
         errorDetails.push(`Gemini (${model}): ${res.status}`);
       }
-    } catch (e) {
-      errorDetails.push(`Gemini (${model}): Network Error`);
-    }
-  }
-
-  // ── 3. Pollinations fallback ─────────────────────────────────────────────
-  for (const model of ["openai", "mistral"]) {
-    try {
-      const fallbackMessages = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ];
-      const res = await fetch("https://text.pollinations.ai/", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: model, messages: fallbackMessages, seed: 42 })
-      });
-      if (res.ok) {
-        const text = await res.text();
-        if (text.length > 10) return contextHeader + cleanHtml(text);
-      } else {
-        errorDetails.push(`Pollinations (${model}): ${res.status}`);
-      }
-    } catch (e) {
-      errorDetails.push(`Pollinations (${model}): ${e.message}`);
-    }
+    } catch (e) { errorDetails.push(`Gemini (${model}): Network Error`); }
   }
 
   return `<div class="card" style="padding:16px; border: 1px solid var(--accent-rose); color: var(--accent-rose);">
