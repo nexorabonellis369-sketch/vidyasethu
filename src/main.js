@@ -1,4 +1,5 @@
 // Vidhyasethu - BSc Applied Science Companion
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 import { allSemesters, getAllCourses, searchTopics, inferCourse, getCourseByCode, getPrerequisites, getCrossConnections, getTextbookRef, getLabCourses, getStats } from './engine/courseMapper.js';
 import { renderDashboard } from './components/dashboard.js';
 import { renderTopicNotes } from './components/topicNotes.js';
@@ -30,6 +31,10 @@ window._setMode = setMode;
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
+    // Initialize Mermaid
+    window.mermaid = mermaid;
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+
     buildSemesterNav();
     setupEventListeners();
     setMode('dashboard');
@@ -37,6 +42,15 @@ function init() {
     // Set dark theme default
     if (!document.documentElement.getAttribute('data-theme')) {
         document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    // Register PWA Service Worker
+    if ('serviceWorker' in navigator) {
+        // In production, sw.js is at root; in dev, it's in /public/
+        const swPath = import.meta.env.DEV ? '/public/sw.js' : '/sw.js';
+        navigator.serviceWorker.register(swPath)
+            .then(reg => console.log('Service Worker registered.'))
+            .catch(err => console.error('Service Worker registration failed.', err));
     }
 }
 
@@ -60,6 +74,8 @@ function setupEventListeners() {
             if (window.innerWidth <= 768) toggleSidebar(false);
         });
     });
+
+
 
     // Search
     searchInput.addEventListener('input', handleSearch);

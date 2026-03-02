@@ -1,276 +1,37 @@
-﻿// Topic Notes PDF Generator Component
+﻿import { generateContent } from '../utils/aiClient.js';
 
-// Generates and renders accurate SVG diagrams via AI for all wiki-diagram-slot placeholders
-async function renderWikiDiagrams() {
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const slots = document.querySelectorAll('.wiki-diagram-slot');
-
-  const svgPrompt = (query) => {
-    const isGraph = /graph|curve|plot|waveform|vs |versus|displacement|velocity|time|frequency|spectrum/i.test(query);
-    const isCircuit = /circuit|cell|electrode|battery|capacitor|resistor|transistor|diode/i.test(query);
-    const isForce = /force|vector|diagram|field|free body|stress|torque|equilibrium/i.test(query);
-    let extra = '';
-    if (isGraph) extra = `\n- This is a GRAPH/CURVE diagram. Draw accurate X and Y axes with labels and units. Show the curve/waveform correctly plotted. Mark key points (peaks, zero crossings, asymptotes).`;
-    else if (isCircuit) extra = `\n- This is a CIRCUIT/CELL diagram. Show all components as standard symbols. Label terminals, electrodes, current direction with arrows.`;
-    else if (isForce) extra = `\n- This is a FORCE/VECTOR diagram. Show all vectors as bold arrows. Label each force with name and direction clearly.`;
-    else extra = `\n- This is a PHYSICAL SETUP diagram. Show the real-world arrangement of components, label each part clearly with leader lines.`;
-
-    return `You are a precise scientific diagram generator. Generate a clean, accurate, well-labeled SVG diagram for: "${query}".
-
-STRICT RULES:
-- Output ONLY raw SVG code. Start with <svg, end with </svg>. Nothing else before or after.
-- viewBox="0 0 600 380" width="100%" height="auto"
-- White background: <rect width="600" height="380" fill="white"/>
-- Font: font-family="Arial, sans-serif"
-- All text labels in plain English, font-size="13", fill="#111"
-- Use shapes: rect, circle, line, path, polygon, polyline
-- Draw arrowheads with filled polygon triangles
-- Color code parts: use #2563eb (blue), #dc2626 (red), #16a34a (green), #d97706 (orange)
-- Title: <text x="300" y="28" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">${query}</text>
-- Make it educationally accurate — label every important component${extra}
-- NO gradients, NO clip-path, NO complex filters`;
-  };
-
-
-  slots.forEach(async (el) => {
-    const query = el.dataset.query;
-    const type = el.dataset.type || 'diagram'; // 'diagram' or 'photo'
-    if (!query) return;
-
-    const wrapStyle = 'text-align:center;margin:24px 0;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;padding:12px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.07);';
-    const labelStyle = 'font-size:0.72rem;color:#888;margin-bottom:6px;text-align:left;';
-    const imgStyle = 'max-width:100%;height:auto;border-radius:8px;background:#fff;padding:4px;';
-
-    function extractAndShow(text) {
-      text = text.replace(/```svg\s*/gi, '').replace(/```xml\s*/gi, '').replace(/```\s*/g, '').trim();
-      const m = text.match(/<svg[\s\S]*<\/svg>/i);
-      if (m) {
-        el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">� Diagram: ${query}</div>${m[0]}</div>`;
-        return true;
-      }
-      return false;
+function sanitizeMermaid(chart) {
+  // Fix node labels with special chars: A[Label?] -> A["Label?"]
+  let fixed = chart.replace(/([a-zA-Z0-9\-]+)\[(.*?)\]/gi, (m, id, label) => {
+    if (/[?!+=*&^%$#@|()]/.test(label) && !label.trim().startsWith('"')) {
+      return `${id}["${label.trim()}"]`;
     }
-
-    // ── REAL_PHOTO path: Fetch an actual photo from Wikimedia Commons ─────────────
-    if (type === 'photo') {
-      async function tryWikiPhoto(searchQuery) {
-        const encoded = encodeURIComponent(searchQuery);
-        const res = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encoded}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&format=json&origin=*`);
-        const data = await res.json();
-        const pages = data.query && data.query.pages;
-        if (!pages) return null;
-        const urls = Object.values(pages).map(p => p.imageinfo?.[0]?.url).filter(u => u && !/\.(svg|ogg|webm|mp3|wav|pdf)$/i.test(u));
-        for (const url of urls) {
-          const ok = await new Promise(resolve => { const i = new Image(); i.onload = () => resolve(true); i.onerror = () => resolve(false); i.src = url; });
-          if (ok) return url;
-        }
-        return null;
-      }
-
-      try {
-        let url = await tryWikiPhoto(query);
-        if (!url) url = await tryWikiPhoto(query.split(' ').slice(0, 3).join(' '));
-        if (url) {
-          el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">📷 Real-World Example: ${query}</div><img src="${url}" style="${imgStyle}" alt="${query}" /></div>`;
-          return;
-        }
-        // Wikipedia article thumbnail fallback
-        const slug = encodeURIComponent(query.split(' ').slice(0, 3).join('_'));
-        const res2 = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${slug}`);
-        const d2 = await res2.json();
-        if (d2.thumbnail && d2.thumbnail.source) {
-          el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">📷 Real-World Example: ${query}</div><img src="${d2.thumbnail.source}" style="${imgStyle};max-width:360px;" alt="${query}" /></div>`;
-          return;
-        }
-      } catch (e) { /* fall through to text fallback */ }
-      el.outerHTML = `<div style="${wrapStyle}padding:20px;"><div style="${labelStyle}">📷 ${query}</div><div style="font-size:0.9rem;color:#555;">Real-world example: <strong>${query}</strong></div></div>`;
-      return;
-    }
-
-    // ── WIKI_DIAGRAM path: AI-generated SVG ──────────────────────────────────────
-    // TIER 1 — Gemini API (fastest, most accurate SVG)
-
-    const MODELS = ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
-    for (const model of MODELS) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: svgPrompt(query) }] }],
-            generationConfig: { temperature: 0.05, maxOutputTokens: 2500 }
-          })
-        });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        if (text && extractAndShow(text)) return;
-      } catch (e) { /* try next */ }
-    }
-
-    // TIER 2 — Claude 3.7 Sonnet via puter.ai.chat (best SVG code generator)
-    try {
-      if (typeof puter !== 'undefined' && puter.ai && puter.ai.chat) {
-        el.innerHTML = `<div style="${labelStyle}">🤖 Generating SVG with Claude 3.7…</div>`;
-        const svgModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini'];
-        for (const m of svgModels) {
-          try {
-            const resp = await puter.ai.chat([
-              { role: 'system', content: 'You are a precise SVG diagram generator. Output ONLY raw SVG code, nothing else. No markdown, no fences, no explanation.' },
-              { role: 'user', content: svgPrompt(query) }
-            ], { model: m });
-            const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-            if (text && extractAndShow(text)) return;
-          } catch (me) { /* try next */ }
-        }
-      }
-    } catch (e) { /* fall through */ }
-
-
-    // TIER 3 — Clean HTML concept box (always readable, no garbled text)
-    el.outerHTML = `<div style="${wrapStyle}padding:20px;">
-      <div style="${labelStyle}">📊 Diagram: ${query}</div>
-      <div style="display:inline-block;border:2px solid #2563eb;border-radius:8px;padding:14px 28px;background:#eff6ff;font-size:1rem;font-weight:600;color:#1e40af;">${query}</div>
-      <div style="margin-top:10px;font-size:0.82rem;color:#6b7280;">Refer to the notes above for a full explanation of this concept.</div>
-    </div>`;
+    return m;
   });
+  // Fix edge labels: A -- Label? --> B
+  fixed = fixed.replace(/--\s*([^-\n>\[\("]+?)\s*-->/gi, (m, label) => {
+    if (/[?!+=*&^%$#@|()]/.test(label) && !label.trim().startsWith('"')) {
+      return `-- "${label.trim()}" -->`;
+    }
+    return m;
+  });
+  return fixed;
 }
 
-
-
-
-export function renderTopicNotes(container, { allSemesters, selectedCourse, getCourseByCode, getPrerequisites, getCrossConnections, getTextbookRef }) {
-  const courses = allSemesters.flatMap(s => s.courses.map(c => ({ ...c, semester: s.num })));
-
-  container.innerHTML = `
-    <div class="animate-fade">
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-header">
-          <div class="card-icon cyan">📝</div>
-          <div>
-            <div class="card-title">Topic Notes Generator</div>
-            <div class="card-desc">Select a course, unit and topic to generate structured exam-ready notes.</div>
-          </div>
-        </div>
-        <div class="grid-2" style="margin-top:16px;">
-          <div class="form-group">
-            <label class="form-label">Course</label>
-            <select id="tn-course" class="form-select">
-              <option value="">— Select Course —</option>
-              ${allSemesters.map(sem => `
-                <optgroup label="${sem.label}">
-                  ${sem.courses.filter(c => c.units).map(c => `
-                    <option value="${c.code}" ${selectedCourse && selectedCourse.code === c.code ? 'selected' : ''}>${c.code} – ${c.title}</option>
-                  `).join('')}
-                </optgroup>
-              `).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Difficulty Level</label>
-            <select id="tn-level" class="form-select">
-              <option value="bsc_level">📘 BSc Level — Core Understanding</option>
-              <option value="advanced_level">🚀 Advanced Level — Deep Research & Analysis</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group" id="tn-unit-group" style="display:none;">
-          <label class="form-label">Unit</label>
-          <select id="tn-unit" class="form-select">
-            <option value="">— Select Unit —</option>
-          </select>
-        </div>
-        <div class="form-group" id="tn-topic-group" style="display:none;">
-          <label class="form-label">Topic</label>
-          <select id="tn-topic" class="form-select">
-            <option value="">— Select Topic —</option>
-          </select>
-        </div>
-        <button id="tn-generate" class="btn btn-primary" style="margin-top:4px;" disabled>✨ Generate Notes</button>
-        <button id="tn-print" class="btn btn-secondary" style="margin-top:4px;margin-left:8px;display:none;" onclick="window.print()">🖨️ Print / Save PDF</button>
-      </div>
-      <div id="tn-output"></div>
-    </div>
-  `;
-
-  const courseSelect = document.getElementById('tn-course');
-  const unitGroup = document.getElementById('tn-unit-group');
-  const unitSelect = document.getElementById('tn-unit');
-  const topicGroup = document.getElementById('tn-topic-group');
-  const topicSelect = document.getElementById('tn-topic');
-  const genBtn = document.getElementById('tn-generate');
-  const printBtn = document.getElementById('tn-print');
-  const output = document.getElementById('tn-output');
-
-  function populateUnits(code) {
-    const course = getCourseByCode(code);
-    unitSelect.innerHTML = '<option value="">— Select Unit —</option>';
-    topicSelect.innerHTML = '<option value="">— Select Topic —</option>';
-    if (!course || !course.units) { unitGroup.style.display = 'none'; topicGroup.style.display = 'none'; return; }
-    course.units.forEach(u => {
-      unitSelect.innerHTML += `<option value="${u.num}">${u.num}. ${u.title}</option>`;
-    });
-    unitGroup.style.display = 'block';
-    topicGroup.style.display = 'none';
-    genBtn.disabled = true;
+async function fetchWithTimeout(resource, options = {}) {
+  const { timeout = 15000 } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(resource, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
   }
-
-  function populateTopics(code, unitNum) {
-    const course = getCourseByCode(code);
-    const unit = course && course.units ? course.units.find(u => u.num == unitNum) : null;
-    topicSelect.innerHTML = '<option value="">— Select Topic —</option>';
-    if (!unit) { topicGroup.style.display = 'none'; return; }
-    unit.topics.forEach(t => {
-      topicSelect.innerHTML += `<option value="${t}">${t}</option>`;
-    });
-    topicGroup.style.display = 'block';
-    genBtn.disabled = false;
-  }
-
-  courseSelect.addEventListener('change', () => populateUnits(courseSelect.value));
-  unitSelect.addEventListener('change', () => {
-    if (unitSelect.value) populateTopics(courseSelect.value, unitSelect.value);
-  });
-  topicSelect.addEventListener('change', () => { genBtn.disabled = !topicSelect.value; });
-
-  if (selectedCourse) {
-    courseSelect.value = selectedCourse.code;
-    populateUnits(selectedCourse.code);
-  }
-
-  genBtn.addEventListener('click', async () => {
-    try {
-      output.innerHTML = '<div class="card" style="padding:16px;">Generating notes...</div>';
-      console.log("Generate Notes clicked");
-      const code = courseSelect.value;
-      const unitNum = unitSelect.value;
-      const topic = topicSelect.value || 'All Topics in Unit';
-      const level = document.getElementById('tn-level').value;
-      console.log("Selected:", { code, unitNum, topic, level });
-
-      const course = getCourseByCode(code);
-      if (!course) {
-        output.innerHTML = '<div class="card" style="padding:16px;color:red;">Error: Course not found for code ' + code + '</div>';
-        return;
-      }
-      const unit = course.units.find(u => u.num == unitNum);
-      if (!unit) {
-        output.innerHTML = '<div class="card" style="padding:16px;color:red;">Error: Unit not found for num ' + unitNum + '</div>';
-        return;
-      }
-
-      await generateNotes(output, course, unit, topic, level, getPrerequisites, getCrossConnections, getTextbookRef);
-      printBtn.style.display = 'inline-flex';
-      console.log("Generation complete");
-    } catch (err) {
-      console.error(err);
-      output.innerHTML = '<div class="card" style="padding:16px;color:red;white-space:pre-wrap;">Error generating notes:\n' + err.message + '\n\n' + err.stack + '</div>';
-    }
-  });
 }
 
-// ==========================================
-// ROBUST AI RESEARCH GENERATOR
-// ==========================================
 async function generateTopicResearchAI(course, unit, topic, level) {
   const levelContext = {
     'bsc_level': `BSC LEVEL INSTRUCTIONS:
@@ -348,13 +109,17 @@ CRITICAL FORMATTING RULES — Output ONLY raw HTML (never markdown):
    Show the formula in a <div class="formula-block"> first, then IMMEDIATELY below it a variable legend table.
    Use color to highlight each variable letter in the formula.
 
-5. Visuals: Include 2-3 visuals per topic using [WIKI_DIAGRAM: ...] or [REAL_PHOTO: ...].
+5. Visuals & Diagrams (Mandatory):
+   - Use \` \` \`mermaid \` blocks for flowcharts and logic. IMPORTANT: Use double quotes for any node labels containing spaces or special characters (e.g., A["Start Process"] or B["Is it full?"]).
+   - Use [AI_IMAGE: descriptive prompt] for technical graphs and photos. Keep the prompt as plain text (no HTML tags).
+   - Use [VIDEO_SEARCH: topic name] for educational animations.
 
 MANDATORY CONTENT INCLUSION:
-- Cornell Layout for the "Definition & Core Concept" section.
-- Flow Notes for the "Derivation Steps" or "Process" section.
-- Mind Map Bubbles for "Properties" or "Related Concepts".
-- Bujo List for the "Quick Revision" section at the end.
+- Include at least one Mermaid flow-chart (with quoted labels) per topic.
+- Include 2-3 [AI_IMAGE: ...] tags for technical visualizations.
+- Use Cornell Layout for the "Definition & Core Concept" section.
+- Use Flow Notes for the "Derivation Steps" or "Process" section.
+- End with a Bujo-style Key Points summary.
 
 ${levelContext}`;
 
@@ -370,14 +135,62 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
 
   function cleanHtml(text) {
     let clean = text.replace(/⚠️\s*\*\*IMPORTANT NOTICE\*\*[\s\S]*?will continue to work normally\./gi, '')
-      .replace(/```html\s*/gi, '').replace(/```\s*/g, '').trim();
+      .trim();
 
-    // ── Strip LaTeX delimiters so they render as readable plain text ──────────
-    clean = clean.replace(/\\\([\s\S]*?\\\)/g, (m) => m.slice(2, -2));
-    clean = clean.replace(/\\\[[\s\S]*?\\\]/g, (m) => m.slice(2, -2));
+    const placeholders = [];
+
+    // 1. EXTRACTION - Pull out all technical tags into placeholders
+    // This protects them from being "fixed" by math formatting rules.
+
+    // A. AI Images
+    clean = clean.replace(/!?\[AI_IMAGE:\s*(.+?)\]/gi, (_, q) => {
+      const safe = q.trim().replace(/['"]/g, '');
+      const uniqueId = 'ai-img-' + Math.floor(Math.random() * 9999999);
+      const slot = `<div id="${uniqueId}" class="visual-slot" data-query="${safe}" data-type="image" style="text-align:center;margin:24px 0;background:var(--bg-tertiary);border-radius:12px;overflow:hidden;min-height:200px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-color);">
+        <div class="skeleton-text">🎨 Generating high-intellect visual for "${safe.substring(0, 30)}..."</div>
+      </div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // B. Video Search
+    clean = clean.replace(/!?\[VIDEO_SEARCH:\s*(.+?)\]/gi, (_, q) => {
+      const safe = q.trim().replace(/['"]/g, '');
+      const uniqueId = 'vid-slot-' + Math.floor(Math.random() * 9999999);
+      const slot = `<div id="${uniqueId}" class="visual-slot" data-query="${safe}" data-type="video" style="margin:20px 0;"></div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // C. Mermaid Blocks
+    clean = clean.replace(/```\s*mermaid\s*([\s\S]*?)```/gi, (_, chart) => {
+      const fixedChart = sanitizeMermaid(chart.trim());
+      const slot = `<pre class="mermaid" style="text-align:center; margin: 24px 0; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px;">\n${fixedChart}\n</pre>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // D. Generic Code Blocks
+    clean = clean.replace(/```(?:html|javascript|python|css|json)?\s*([\s\S]*?)```/gi, (_, code) => {
+      const slot = `<div class="code-block" style="background:var(--bg-tertiary); padding:12px; border-radius:8px; font-family:var(--font-mono); font-size:0.85rem; margin:12px 0; overflow-x:auto; border:1px solid var(--border);">${code.trim()}</div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // 2. TRANSFORMATION - Format neutral text
+
+    // Strip remaining lone backticks
+    clean = clean.replace(/```/g, '');
+
+    clean = clean.replace(/\\\(([\s\S]*?)\\\)/g, '$1');
+    clean = clean.replace(/\\\[([\s\S]*?)\\\]/g, '$1');
     clean = clean.replace(/\$\$([\s\S]*?)\$\$/g, '$1');
     clean = clean.replace(/\$([^\n$]{1,200})\$/g, '$1');
-    // Common LaTeX commands → Unicode equivalents
+
     clean = clean
       .replace(/\\dagger/g, '†').replace(/\\dag/g, '†')
       .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)')
@@ -402,111 +215,124 @@ Task: Research this topic deeply and prepare university-grade lecture notes.`;
       .replace(/\\_([a-zA-Z0-9]+)/g, '<sub>$1</sub>')
       .replace(/\\\^([a-zA-Z0-9]+)/g, '<sup>$1</sup>');
 
-    // Auto-fix Markdown bolding
     clean = clean.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-    // Auto-fix mathematical superscripts (e.g. x^2 -> x<sup>2</sup>)
     clean = clean.replace(/([a-zA-Z0-9)])\^([a-zA-Z0-9]+)/g, '$1<sup>$2</sup>');
 
-    // WIKI_DIAGRAM → AI-generated SVG technical diagram
-    clean = clean.replace(/!?\[WIKI_DIAGRAM:\s*(.+?)\]/gi, (match, query) => {
-      const safeQuery = query.trim().replace(/[^a-zA-Z0-9\s]/g, '');
-      const uniqueId = 'wiki-img-' + Math.floor(Math.random() * 9999999);
-      return `<div id="${uniqueId}" class="wiki-diagram-slot" data-query="${safeQuery}" data-type="diagram" style="text-align:center;margin:24px 0;padding:16px;font-size:0.9rem;color:var(--text-secondary);">📐 Generating diagram for "${safeQuery}"…</div>`;
+    // 3. RESTORATION - Put visuals back in
+    placeholders.forEach((slot, i) => {
+      clean = clean.replace(`@@@VISUAL_SLOT_${i}@@@`, slot);
     });
-
-    // REAL_PHOTO → Wikimedia Commons photo search
-    clean = clean.replace(/!?\[REAL_PHOTO:\s*(.+?)\]/gi, (match, query) => {
-      const safeQuery = query.trim().replace(/[^a-zA-Z0-9\s]/g, '');
-      const uniqueId = 'wiki-img-' + Math.floor(Math.random() * 9999999);
-      return `<div id="${uniqueId}" class="wiki-diagram-slot" data-query="${safeQuery}" data-type="photo" style="text-align:center;margin:24px 0;padding:16px;font-size:0.9rem;color:var(--text-secondary);">📷 Loading real-world photo for "${safeQuery}"…</div>`;
-    });
-
-    // mermaid blocks
-    clean = clean.replace(/```mermaid\s*([\s\S]*?)```/gi, '<pre class="mermaid" style="text-align:center; margin: 24px 0;">\n$1\n</pre>');
 
     return clean;
   }
 
   let errorDetails = [];
 
-  // 1. Pollinations (Free, Primary Source) ──────────────────────────────
-  const pollinationModels = ["openai", "mistral", "searchgpt"];
-  for (const model of pollinationModels) {
-    try {
-      const res = await fetch("https://text.pollinations.ai/", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
-          seed: 42
-        })
-      });
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.length > 30) return cleanHtml(text);
-      } else {
-        errorDetails.push(`Pollinations (${model}): ${res.status}`);
-      }
-    } catch (e) {
-      errorDetails.push(`Pollinations (${model}): ${e.message}`);
-    }
-  }
 
-  // 2. Puter.js (Fallback 1) ────────────────────────────────────────────────
-  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet'];
-  for (const model of puterModels) {
-    try {
-      if (typeof puter !== 'undefined' && puter.ai) {
-        const resp = await puter.ai.chat(messages, { model });
-        const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-        if (text && text.length > 50) return cleanHtml(text);
-      }
-    } catch (e) {
-      errorDetails.push(`Puter (${model}): ${e.message}`);
-    }
-  }
-
-  // 3. Gemini API (Fallback 2) ──────────────────────────────────────────────
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-2.0-flash-lite-preview-02-05"];
-
-  for (const model of GEMINI_MODELS) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: userMessage }] }],
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.2, maxOutputTokens: 4000 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.length > 30) return cleanHtml(text);
-      } else {
-        const errText = await res.text();
-        if (errText.includes("funding") || errText.includes("quota") || res.status === 429) {
-          errorDetails.push(`Gemini (${model}): Limit reached`);
-          break;
-        }
-        errorDetails.push(`Gemini (${model}): ${res.status}`);
-      }
-    } catch (e) {
-      errorDetails.push(`Gemini (${model}): Network Error`);
-    }
+  // Process via unified multi-provider AI Client
+  try {
+    const text = await generateContent(messages);
+    if (text) return cleanHtml(text);
+  } catch (e) {
+    errorDetails.push(`AI Client Failed: ${e.message}`);
   }
 
   return `<div class="card" style="padding:16px;color:var(--accent-rose); border: 1px solid var(--accent-rose);">
     <div style="font-weight:bold;margin-bottom:8px;">⚠️ Live Research Generation Failed</div>
-    <p style="font-size:0.9rem;opacity:0.9;">All AI research providers are currently busy or unavailable.</p>
+    <p style="font-size:0.9rem;opacity:0.9;">All intellectual AI research providers are currently busy. Please try again in 1 minute.</p>
     <div style="font-size:0.75rem; background:rgba(0,0,0,0.1); padding:8px; border-radius:4px; margin-top:10px; font-family:monospace;">
       <strong>Error Trace:</strong><br>
       ${errorDetails.slice(0, 5).join('<br>')}
     </div>
-    <p style="font-size:0.8rem;opacity:0.9;margin-top:10px;">Please check your internet connection or try again in a few minutes.</p>
   </div>`;
+}
+
+export function renderTopicNotes(container, { allSemesters, selectedCourse, getCourseByCode, getPrerequisites, getCrossConnections, getTextbookRef, setMode }) {
+  let innerCourse = selectedCourse;
+  let unit = innerCourse?.units?.[0] || null;
+  let topic = unit?.topics?.[0] || null;
+  let level = 'bsc_level';
+
+  function update() {
+    container.innerHTML = `
+      <div class="animate-fade">
+        <div class="card" style="margin-bottom: 24px;">
+          <h1 style="font-size:1.4rem; margin-bottom:12px;">📝 Topic Notes Generator</h1>
+          <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom: 20px;">Get comprehensive, university-grade study notes with derivations, solved examples, and interactive visuals.</p>
+          
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">Select Course</label>
+              <select id="course-sel" class="form-select">
+                <option value="">-- Choose Course --</option>
+                ${allSemesters.map(s => `
+                  <optgroup label="${s.label}">
+                    ${s.courses.map(c => `<option value="${c.code}" ${innerCourse?.code === c.code ? 'selected' : ''}>${c.code} - ${c.title}</option>`).join('')}
+                  </optgroup>
+                `).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Study Depth</label>
+              <select id="level-sel" class="form-select">
+                <option value="bsc_level" ${level === 'bsc_level' ? 'selected' : ''}>📘 BSc Level (Foundation & Exam Focus)</option>
+                <option value="advanced_level" ${level === 'advanced_level' ? 'selected' : ''}>🚀 Advanced Level (Deep Analysis & GATE)</option>
+              </select>
+            </div>
+          </div>
+
+          ${innerCourse ? `
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">Select Unit</label>
+                <select id="unit-sel" class="form-select">
+                  ${innerCourse.units.map(u => `<option value="${u.num}" ${unit?.num === u.num ? 'selected' : ''}>Unit ${u.num}: ${u.title}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Select Topic</label>
+                <select id="topic-sel" class="form-select">
+                  ${unit ? unit.topics.map(t => `<option value="${t}" ${topic === t ? 'selected' : ''}>${t}</option>`).join('') : '<option>Select unit first</option>'}
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:8px;" id="gen-btn">✨ Generate Intelligent Notes</button>
+          ` : '<div class="callout callout-info"><div class="callout-icon">👆</div><div>Please select a course to start generating notes.</div></div>'}
+        </div>
+        <div id="notes-output"></div>
+        <button id="print-btn" class="btn btn-secondary print-btn" style="display:none;">🖨️ Export as PDF / Print</button>
+      </div>
+    `;
+
+    // Listeners
+    container.querySelector('#course-sel').addEventListener('change', (e) => {
+      innerCourse = getCourseByCode(e.target.value);
+      unit = innerCourse?.units?.[0] || null;
+      topic = unit?.topics?.[0] || null;
+      update();
+    });
+
+    if (innerCourse) {
+      container.querySelector('#level-sel').addEventListener('change', (e) => {
+        level = e.target.value;
+      });
+      container.querySelector('#unit-sel').addEventListener('change', (e) => {
+        unit = innerCourse.units.find(u => u.num == e.target.value);
+        topic = unit?.topics?.[0] || null;
+        update();
+      });
+      container.querySelector('#topic-sel').addEventListener('change', (e) => {
+        topic = e.target.value;
+      });
+      container.querySelector('#gen-btn').addEventListener('click', () => {
+        generateNotes(container.querySelector('#notes-output'), innerCourse, unit, topic, level, getPrerequisites, getCrossConnections, getTextbookRef);
+        container.querySelector('#print-btn').style.display = 'flex';
+      });
+    }
+
+    container.querySelector('#print-btn').addEventListener('click', () => window.print());
+  }
+  update();
 }
 
 async function generateNotes(output, course, unit, topic, level, getPrerequisites, getCrossConnections, getTextbookRef) {
@@ -570,25 +396,25 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     </div>
   `;
   setTimeout(async () => {
-    // Render Mermaid diagrams
     if (window.mermaid) {
-      try { await mermaid.run({ querySelector: '.mermaid' }); } catch (e) { console.error('Mermaid render error:', e); }
+      try {
+        await window.mermaid.run({ nodes: output.querySelectorAll('.mermaid') });
+      } catch (e) {
+        console.error('Mermaid render error:', e);
+      }
     }
-    // Render all Wikipedia diagram slots
-    renderWikiDiagrams();
+    renderVisuals();
   }, 400);
 }
 
 async function getNoteContentAsync(course, unit, topic, level, externalData, aiNotesHTML) {
   const isDeep = level === 'advanced_level';
   const noteData = getTopicNoteData(course, unit, topic, isDeep);
-  const levelLabel = { bsc_level: '📘 BSc Level', advanced_level: '🚀 Advanced Level' }[level] || level;
 
   const searchQuery = externalData.bookInfo ? `${externalData.bookInfo.title} ${externalData.bookInfo.author}` : `${topic} textbook`;
   const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
   const knimbusUrl = `https://www.knimbus.com/`;
 
-  // Generate Book HTML
   let bookHTML = '';
   if (externalData.bookInfo) {
     bookHTML = `
@@ -650,32 +476,27 @@ async function getNoteContentAsync(course, unit, topic, level, externalData, aiN
 
 async function fetchExternalData(topicName, primaryTextbook) {
   try {
-    // Query Wikipedia API for the topic
     const cleanTopic = topicName.split('-')[0].split('(')[0].trim();
-    const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanTopic)}&utf8=&format=json&origin=*`);
+    const searchRes = await fetchWithTimeout(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanTopic)}&utf8=&format=json&origin=*`, { timeout: 10000 });
     const searchData = await searchRes.json();
-
     let wikiInfo = { title: topicName, extract: "General theoretical context based on standard university physics/math definitions.", sentences: [] };
 
     if (searchData.query && searchData.query.search.length > 0) {
       const pageId = searchData.query.search[0].pageid;
-      const pageRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=5&exlimit=1&pageids=${pageId}&explaintext=1&format=json&origin=*`);
+      const pageRes = await fetchWithTimeout(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=5&exlimit=1&pageids=${pageId}&explaintext=1&format=json&origin=*`, { timeout: 10000 });
       const pageData = await pageRes.json();
       const page = pageData.query.pages[pageId];
 
       wikiInfo.title = page.title;
       wikiInfo.extract = page.extract;
-
-      // Split into sentences for line-by-line analysis
       wikiInfo.sentences = page.extract.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 20);
     }
 
-    // Query OpenLibrary API for the textbook
     let bookInfo = null;
     if (primaryTextbook) {
       const authorTitle = primaryTextbook.split(',');
       const searchStr = authorTitle[0].trim() + (authorTitle[1] ? " " + authorTitle[1].trim() : "");
-      const bookRes = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(searchStr)}&limit=1`);
+      const bookRes = await fetchWithTimeout(`https://openlibrary.org/search.json?q=${encodeURIComponent(searchStr)}&limit=1`, { timeout: 10000 });
       const bookData = await bookRes.json();
       if (bookData.docs && bookData.docs.length > 0) {
         const doc = bookData.docs[0];
@@ -689,12 +510,7 @@ async function fetchExternalData(topicName, primaryTextbook) {
       }
     }
 
-    return {
-      wikiTitle: wikiInfo.title,
-      wikiSummary: wikiInfo.extract,
-      sentences: wikiInfo.sentences,
-      bookInfo: bookInfo
-    };
+    return { wikiTitle: wikiInfo.title, wikiSummary: wikiInfo.extract, sentences: wikiInfo.sentences, bookInfo: bookInfo };
   } catch (e) {
     console.error("External fetch failed:", e);
     return {
@@ -707,10 +523,8 @@ async function fetchExternalData(topicName, primaryTextbook) {
 }
 
 function getTopicNoteData(course, unit, topic, isDeep) {
-  // Dynamic note generation based on course and topic
   const topicLower = topic.toLowerCase();
 
-  // Greens theorem
   if (topicLower.includes("green")) {
     return {
       motivation: "Green's theorem elegantly bridges the gap between a line integral around a closed curve and a double integral over the enclosed region. It is the 2-D version of the general Stokes' theorem and is used extensively in fluid dynamics, electrostatics, and computer graphics.",
@@ -724,7 +538,6 @@ function getTopicNoteData(course, unit, topic, isDeep) {
     };
   }
 
-  // Damped SHM
   if (topicLower.includes("damp")) {
     return {
       motivation: "Real oscillators always lose energy due to friction or air resistance. Damped harmonic motion explains why a swinging door slows down, why a shock absorber works, and why tuning an LCR circuit requires careful resistance selection.",
@@ -738,7 +551,6 @@ function getTopicNoteData(course, unit, topic, isDeep) {
     };
   }
 
-  // Generic fallback generator
   const topicWords = topic.split(' ').slice(0, 4).join(' ');
   return {
     motivation: `${topic} is a fundamental concept in ${course.title} (${course.code}). Understanding this topic builds the foundation for advanced work in ${unit.title} and connects directly to exam questions.`,
@@ -751,3 +563,70 @@ function getTopicNoteData(course, unit, topic, isDeep) {
     ]
   };
 }
+
+export function renderVisuals() {
+  document.querySelectorAll('.visual-slot').forEach(async slot => {
+    const query = slot.dataset.query;
+    const type = slot.dataset.type;
+
+    if (type === 'image') {
+      const seed = Math.floor(Math.random() * 10000);
+      const imageUrl = `/ai-img/${encodeURIComponent(query)}?width=1024&height=768&nologo=true&enhance=true&seed=${seed}`;
+
+      // Show loading state
+      slot.innerHTML = `
+        <div class="ai-img-wrapper" style="position:relative; width:100%; max-width:640px; margin:0 auto; min-height:240px; background:var(--bg-tertiary); border-radius:12px; overflow:hidden; border:1px solid var(--border-color);">
+          <div class="vis-loader" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; z-index:2;">
+            <div style="font-size:2.5rem;">🎨</div>
+            <div class="skeleton-text" style="font-size:0.9rem;">Generating high-intellect visual...</div>
+            <div style="font-size:0.7rem; color:var(--text-tertiary); max-width:220px; text-align:center;">${query.substring(0, 50)}...</div>
+          </div>
+        </div>`;
+
+      const wrapper = slot.querySelector('.ai-img-wrapper');
+
+      // Fetch as blob to bypass ORB browser security
+      try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        wrapper.innerHTML = `
+          <img src="${blobUrl}"
+               style="width:100%; display:block; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.5);"
+               alt="${query}">
+          <div style="background:rgba(0,0,0,0.7); color:white; font-size:0.75rem; padding:8px 12px; border-radius:0 0 12px 12px; text-align:left; backdrop-filter:blur(4px);">
+            ✨ AI Generated: ${query.length > 80 ? query.substring(0, 77) + '...' : query}
+          </div>`;
+        // Revoke blob URL after 5 minutes to free memory
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 300000);
+      } catch (err) {
+        console.warn('Image fetch failed:', err);
+        wrapper.innerHTML = `
+          <div style="padding:24px; text-align:center;">
+            <div style="font-size:2rem; margin-bottom:8px;">🖼️</div>
+            <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">Visual for: <em>${query.substring(0, 60)}</em></div>
+            <a href="https://image.pollinations.ai/prompt/${encodeURIComponent(query)}?width=1024&height=768&nologo=true" target="_blank"
+               style="font-size:0.75rem; color:var(--accent-cyan); text-decoration:underline;">🔗 Open image in new tab</a>
+          </div>`;
+      }
+    } else if (type === 'video') {
+      const ytSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' educational science')}`;
+      slot.innerHTML = `
+        <div class="card" style="padding:16px; border:1px dashed var(--accent-cyan); background:var(--bg-tertiary);">
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <div style="font-size:1.5rem;">🎬</div>
+            <div style="font-weight:600; font-size:0.9rem; color:var(--text-primary);">Extended Learning: Video Resources</div>
+          </div>
+          <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">Explore high-quality animations and lectures for "${query}" to visualize the concepts better.</p>
+          <div style="display:flex; gap:10px;">
+            <a href="${ytSearch}" target="_blank" class="btn btn-primary btn-sm" style="background:#ff0000; border:none;">▶ Watch on YouTube</a>
+            <a href="https://vimeo.com/search?q=${encodeURIComponent(query)}" target="_blank" class="btn btn-secondary btn-sm">🎥 Search Vimeo</a>
+          </div>
+        </div>
+      `;
+    }
+  });
+}
+

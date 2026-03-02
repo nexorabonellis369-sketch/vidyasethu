@@ -123,23 +123,11 @@
         <!-- Dynamic content loaded here -->
       </div>
     </main>
+
+
   </div>
 
-  <script src="https://js.puter.com/v2/"></script>
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-    window.mermaid = mermaid;
-    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-
-    // Register PWA Service Worker
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/public/sw.js')
-          .then(reg => console.log('Service Worker registered.'))
-          .catch(err => console.log('Service Worker registration failed.', err));
-      });
-    }
-  </script>
+  <!-- Registration moved to main.js for bundling -->
   <script type="module" src="/src/main.js"></script>
 </body>
 

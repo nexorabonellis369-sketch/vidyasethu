@@ -1,4 +1,5 @@
 // Real World Visualisation Component
+import { generateContent } from '../utils/aiClient.js';
 export function renderRealWorld(container, { allSemesters, selectedCourse, getCourseByCode }) {
 
   container.innerHTML = `
@@ -80,47 +81,22 @@ For each application, output a JSON array. Each item must have these exact field
 
 Output ONLY a valid JSON array. No markdown, no explanation. Start with [ and end with ].`;
 
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
   let apps = null;
 
-  // Tier 1: puter.js — Claude 3.7 Sonnet → GPT-4o → Claude 3.5 → GPT-4o-mini
-  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini'];
-  for (const model of puterModels) {
-    try {
-      if (typeof puter !== 'undefined' && puter.ai) {
-        const resp = await puter.ai.chat([
-          { role: 'system', content: 'You are a precise JSON generator. Output ONLY valid JSON arrays, no markdown, no explanation.' },
-          { role: 'user', content: prompt }
-        ], { model });
-        const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-        if (text) {
-          const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const match = clean.match(/\[[\s\S]*\]/);
-          if (match) { apps = JSON.parse(match[0]); break; }
-        }
-      }
-    } catch (e) { /* try next */ }
-  }
-
-  // Tier 2: Gemini API
   if (!apps) {
-    for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite']) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 2000 }
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const match = clean.match(/\[[\s\S]*\]/);
-          if (match) { apps = JSON.parse(match[0]); break; }
-        }
-      } catch (e) { /* try next */ }
+    try {
+      const text = await generateContent([
+        { role: 'system', content: 'You are a precise JSON generator. Output ONLY valid JSON arrays, no markdown, no explanation.' },
+        { role: 'user', content: prompt }
+      ], { jsonMode: true });
+
+      if (text) {
+        const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+        const match = clean.match(/\[[\s\S]*\]/);
+        if (match) apps = JSON.parse(match[0]);
+      }
+    } catch (e) {
+      console.error("AI Client parsing failed:", e);
     }
   }
 

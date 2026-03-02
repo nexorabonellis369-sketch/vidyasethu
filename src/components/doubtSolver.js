@@ -1,4 +1,23 @@
-// Doubt Solver Component
+import { generateContent } from '../utils/aiClient.js';
+
+function sanitizeMermaid(chart) {
+  // Fix node labels with special chars: A[Label?] -> A["Label?"]
+  let fixed = chart.replace(/([a-zA-Z0-9\-]+)\[(.*?)\]/gi, (m, id, label) => {
+    if (/[?!+=*&^%$#@|()]/.test(label) && !label.trim().startsWith('"')) {
+      return `${id}["${label.trim()}"]`;
+    }
+    return m;
+  });
+  // Fix edge labels: A -- Label? --> B
+  fixed = fixed.replace(/--\s*([^-\n>\[\("]+?)\s*-->/gi, (m, label) => {
+    if (/[?!+=*&^%$#@|()]/.test(label) && !label.trim().startsWith('"')) {
+      return `-- "${label.trim()}" -->`;
+    }
+    return m;
+  });
+  return fixed;
+}
+
 export function renderDoubtSolver(container, { inferCourse, getCourseByCode, getPrerequisites, getCrossConnections }) {
   let chatHistory = [];
 
@@ -212,8 +231,17 @@ export function renderDoubtSolver(container, { inferCourse, getCourseByCode, get
     chatMessages.appendChild(d);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    // After inserting the message, render any diagram/photo slots it contains
-    setTimeout(() => renderDoubtDiagrams(d), 300);
+    // After inserting the message, render any visual slots it contains
+    setTimeout(async () => {
+      renderVisuals(d);
+      if (window.mermaid) {
+        try {
+          await window.mermaid.run({ nodes: d.querySelectorAll('.mermaid') });
+        } catch (e) {
+          console.error('Mermaid render error:', e);
+        }
+      }
+    }, 400);
   }
 
   function solveDoubt(query, imageData) {
@@ -238,116 +266,66 @@ export function renderDoubtSolver(container, { inferCourse, getCourseByCode, get
   }
 }
 
-// ── Diagram renderer for the doubt solver chat bubble ───────────────────────
-async function renderDoubtDiagrams(container) {
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const slots = container.querySelectorAll('.ds-diagram-slot');
+// ── Visual renderer for the doubt solver chat bubble ───────────────────────
+export async function renderVisuals(container) {
+  const slots = container.querySelectorAll('.visual-slot');
   if (!slots.length) return;
 
-  const svgPrompt = (query) => {
-    const isGraph = /graph|curve|plot|waveform|vs |versus|displacement|velocity|time|frequency|spectrum/i.test(query);
-    const isCircuit = /circuit|cell|electrode|battery|capacitor|resistor|transistor|diode/i.test(query);
-    const isForce = /force|vector|diagram|field|free body|stress|torque|equilibrium/i.test(query);
-    let extra = '';
-    if (isGraph) extra = '\n- This is a GRAPH/CURVE diagram. Draw accurate X and Y axes with labels and units. Show the curve/waveform correctly plotted. Mark key points.';
-    else if (isCircuit) extra = '\n- This is a CIRCUIT/CELL diagram. Show all components as standard symbols. Label terminals, electrodes, current direction with arrows.';
-    else if (isForce) extra = '\n- This is a FORCE/VECTOR diagram. Show all vectors as bold arrows. Label each force with name and direction clearly.';
-    else extra = '\n- This is a PHYSICAL SETUP diagram. Show the real-world arrangement of components, label each part clearly with leader lines.';
-
-    return `You are a precise scientific diagram generator. Generate a clean, accurate, well-labeled SVG diagram for: "${query}".
-STRICT RULES:
-- Output ONLY raw SVG code. Start with <svg, end with </svg>. Nothing else.
-- viewBox="0 0 600 380" width="100%" height="auto"
-- White background: <rect width="600" height="380" fill="white"/>
-- Font: font-family="Arial, sans-serif"
-- All text labels in plain English, font-size="13", fill="#111"
-- Use shapes: rect, circle, line, path, polygon, polyline
-- Draw arrowheads with filled polygon triangles
-- Color code parts: use #2563eb (blue), #dc2626 (red), #16a34a (green), #d97706 (orange)
-- Title: <text x="300" y="28" text-anchor="middle" font-size="17" font-weight="bold" fill="#111">${query}</text>
-- Make it educationally accurate — label every important component${extra}
-- NO gradients, NO clip-path, NO complex filters`;
-  };
-
-  const wrapStyle = 'text-align:center;margin:16px 0;background:#ffffff;border-radius:10px;border:1px solid #e5e7eb;padding:10px 14px;box-shadow:0 2px 8px rgba(0,0,0,0.07);';
-  const labelStyle = 'font-size:0.7rem;color:#888;margin-bottom:4px;text-align:left;';
-  const imgStyle = 'max-width:100%;height:auto;border-radius:8px;background:#fff;padding:4px;';
-
-  function extractSVG(text, el, query) {
-    text = text.replace(/```svg\s*/gi, '').replace(/```xml\s*/gi, '').replace(/```\s*/g, '').trim();
-    const m = text.match(/<svg[\s\S]*<\/svg>/i);
-    if (m) {
-      el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">📐 Diagram: ${query}</div>${m[0]}</div>`;
-      return true;
-    }
-    return false;
-  }
-
-  slots.forEach(async (el) => {
-    const query = el.dataset.query;
-    const type = el.dataset.type || 'diagram';
+  slots.forEach(async (slot) => {
+    const query = slot.dataset.query;
+    const type = slot.dataset.type;
     if (!query) return;
 
-    // ── REAL_PHOTO path ────────────────────────────────────────────────────
-    if (type === 'photo') {
-      try {
-        const encoded = encodeURIComponent(query);
-        const res = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encoded}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&format=json&origin=*`);
-        const data = await res.json();
-        const pages = data.query && data.query.pages;
-        if (pages) {
-          const urls = Object.values(pages).map(p => p.imageinfo?.[0]?.url).filter(u => u && !/\.(svg|ogg|webm|mp3|wav|pdf)$/i.test(u));
-          for (const url of urls) {
-            const ok = await new Promise(r => { const i = new Image(); i.onload = () => r(true); i.onerror = () => r(false); i.src = url; });
-            if (ok) { el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">📷 Real-World: ${query}</div><img src="${url}" style="${imgStyle}" alt="${query}" /></div>`; return; }
-          }
-        }
-        // Wikipedia thumbnail fallback
-        const slug = encodeURIComponent(query.split(' ').slice(0, 3).join('_'));
-        const res2 = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${slug}`);
-        const d2 = await res2.json();
-        if (d2.thumbnail?.source) {
-          el.outerHTML = `<div style="${wrapStyle}"><div style="${labelStyle}">📷 Real-World: ${query}</div><img src="${d2.thumbnail.source}" style="${imgStyle};max-width:340px;" alt="${query}" /></div>`;
-          return;
-        }
-      } catch (e) { }
-      el.outerHTML = `<div style="${wrapStyle}padding:14px;"><div style="${labelStyle}">📷 ${query}</div><strong>${query}</strong></div>`;
-      return;
-    }
+    if (type === 'image') {
+      const seed = Math.floor(Math.random() * 10000);
+      const imageUrl = `/ai-img/${encodeURIComponent(query)}?width=1024&height=768&nologo=true&enhance=true&seed=${seed}`;
 
-    // ── WIKI_DIAGRAM path: AI SVG ──────────────────────────────────────────
-    // Tier 1: Gemini
-    for (const model of ['gemini-2.0-flash-lite', 'gemini-1.5-flash']) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: svgPrompt(query) }] }], generationConfig: { temperature: 0.05, maxOutputTokens: 2500 } })
-        });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        if (text && extractSVG(text, el, query)) return;
-      } catch (e) { }
-    }
+      // Show loading state
+      slot.innerHTML = `
+        <div class="ai-img-wrapper" style="position:relative; width:100%; max-width:560px; margin:0 auto; min-height:220px; background:var(--bg-tertiary); border-radius:12px; overflow:hidden; border:1px solid var(--border-color);">
+          <div class="vis-loader" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; z-index:2;">
+            <div style="font-size:2rem;">🎨</div>
+            <div class="skeleton-text" style="font-size:0.85rem;">Generating image...</div>
+            <div style="font-size:0.7rem; color:var(--text-tertiary); max-width:200px; text-align:center;">${query.substring(0, 40)}...</div>
+          </div>
+        </div>`;
 
-    // Tier 2: puter.ai.chat → SVG
-    try {
-      if (typeof puter !== 'undefined' && puter.ai && puter.ai.chat) {
-        for (const m of ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet', 'gpt-4o-mini']) {
-          try {
-            const resp = await puter.ai.chat([
-              { role: 'system', content: 'You are a precise SVG diagram generator. Output ONLY raw SVG code, nothing else. No markdown, no fences.' },
-              { role: 'user', content: svgPrompt(query) }
-            ], { model: m });
-            const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-            if (text && extractSVG(text, el, query)) return;
-          } catch (me) { }
-        }
+      const wrapper = slot.querySelector('.ai-img-wrapper');
+
+      // Fetch as blob via Vite proxy to bypass ORB/CORS
+      try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        wrapper.innerHTML = `
+          <img src="${blobUrl}"
+               style="width:100%; display:block; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,0.4);"
+               alt="${query}">
+          <div style="background:rgba(0,0,0,0.7); color:#fff; font-size:0.7rem; padding:6px 10px; border-radius:0 0 12px 12px; text-align:left; backdrop-filter:blur(4px);">
+            ✨ AI Generated: ${query.length > 50 ? query.substring(0, 47) + '...' : query}
+          </div>`;
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 300000);
+      } catch (err) {
+        console.warn('Image fetch failed:', err);
+        wrapper.innerHTML = `
+          <div style="padding:20px; text-align:center;">
+            <div style="font-size:2rem; margin-bottom:8px;">🖼️</div>
+            <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">Visual for: <em>${query.substring(0, 60)}</em></div>
+            <a href="https://image.pollinations.ai/prompt/${encodeURIComponent(query)}?width=1024&height=768&nologo=true" target="_blank"
+               style="font-size:0.75rem; color:var(--accent-cyan); text-decoration:underline;">🔗 Open image in new tab</a>
+          </div>`;
       }
-    } catch (e) { }
-
-    // Tier 3: Readable fallback label
-    el.outerHTML = `<div style="${wrapStyle}padding:16px;"><div style="${labelStyle}">📐 ${query}</div><div style="font-size:0.9rem;color:#444;"><strong>${query}</strong></div></div>`;
+    } else if (type === 'video') {
+      const ytSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' educational')}`;
+      slot.innerHTML = `
+         <div style="border:1px solid var(--accent-purple); background:var(--bg-secondary); padding:10px; border-radius:10px; text-align:left;">
+           <div style="font-weight:600; font-size:0.85rem; margin-bottom:4px;">🎥 Recommended Video</div>
+           <div style="font-size:0.75rem; color:var(--text-secondary); margin-bottom:8px;">Visual explanation for "${query}"</div>
+           <a href="${ytSearch}" target="_blank" class="btn btn-primary btn-sm" style="background:#ff0000; border:none; font-size:0.7rem;">▶ Watch on YouTube</a>
+         </div>`;
+    }
   });
 }
 
@@ -391,18 +369,18 @@ CRITICAL FORMATTING — Output ONLY raw HTML (never markdown):
         <li class="bujo-item"><span class="bujo-symbol">▲</span><div class="bujo-text">Example Application</div></li>
       </ul>
 
-3. Typography:
-   - Use <div class="aesthetic-header"><h3>📐 Section Title</h3></div> for primary sections.
-   - Use <p class="key-idea">One key idea per line.</p>
-   - Highlight terms: <span class="hl-cyan">Term</span>, <span class="hl-purple">Term</span>, <span class="hl-amber">Term</span>.
+5. Visuals & Diagrams (Mandatory):
+   - Use \` \` \`mermaid \` blocks for flowcharts and logic. IMPORTANT: Use double quotes for any node labels containing spaces or special characters (e.g., A["Start Process"] or B["Is it full?"]).
+   - Use [AI_IMAGE: descriptive prompt] for technical graphs and photos. Keep the prompt as plain text (no HTML tags).
+   - Use [VIDEO_SEARCH: topic name] for educational animations.
 
-4. Formulas: Use <div class="formula-block"> with a variable legend table immediately below.
-5. Visuals: Include 1-2 visuals using [WIKI_DIAGRAM: ...] or [REAL_PHOTO: ...].
-
-MANDATORY CONTENT INCLUSION:
+MANDATORY CONTENT INCLUSIONS:
+- Include at least one Mermaid flow-chart (with quoted labels).
+- Include 1-2 [AI_IMAGE: ...] tags for technical visualizations.
 - Use Cornell Layout for the initial explanation.
 - Use Flow Notes for derivations/processes.
-- End with a Bujo-style Key Points summary.`;
+- End with a Bujo-style Key Points summary.
+- Always include at least one [VIDEO_SEARCH: ...] tag for complex queries.`;
 
   let userMessage = `Student Doubt: ${query}`;
 
@@ -426,7 +404,7 @@ MANDATORY CONTENT INCLUSION:
   if (imageData) {
     const base64Data = imageData.split(',')[1];
 
-    // For Puter/OpenAI format
+    // For OpenAI format
     messages.push({
       role: "user",
       content: [
@@ -448,7 +426,71 @@ MANDATORY CONTENT INCLUSION:
   function cleanHtml(text) {
     let clean = text
       .replace(/⚠️\s*\*\*IMPORTANT NOTICE\*\*[\s\S]*?will continue to work normally\./gi, '')
-      .replace(/```html\s*/gi, '').replace(/```\s*/g, '').trim();
+      .trim();
+
+    const placeholders = [];
+
+    // 1. EXTRACTION - Pull out all technical tags into placeholders
+    // This protects them from being "fixed" by math formatting rules.
+
+    // A. AI Images
+    clean = clean.replace(/!?\[AI_IMAGE:\s*(.+?)\]/gi, (_, q) => {
+      const safe = q.trim().replace(/['"]/g, '');
+      const id = 'ds-vis-' + Math.floor(Math.random() * 9999999);
+      const slot = `<div id="${id}" class="visual-slot" data-query="${safe}" data-type="image" style="text-align:center;margin:16px 0;background:var(--bg-tertiary);border-radius:12px;overflow:hidden;min-height:180px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-color);">
+        <div class="vis-loader" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:var(--bg-tertiary); border-radius:12px;">
+           <div class="skeleton-text">🎨 Rendering Intelligence...</div>
+        </div>
+        <div class="skeleton-text">🎨 Generating visual for "${safe.substring(0, 20)}..."</div>
+      </div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // B. Video Search
+    clean = clean.replace(/!?\[VIDEO_SEARCH:\s*(.+?)\]/gi, (_, q) => {
+      const safe = q.trim().replace(/['"]/g, '');
+      const id = 'ds-vis-' + Math.floor(Math.random() * 9999999);
+      const slot = `<div id="${id}" class="visual-slot" data-query="${safe}" data-type="video" style="margin:16px 0;"></div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // C. Mermaid Blocks
+    clean = clean.replace(/```\s*mermaid\s*([\s\S]*?)```/gi, (_, chart) => {
+      const fixedChart = sanitizeMermaid(chart.trim());
+      const slot = `<pre class="mermaid" style="text-align:center; margin: 24px 0; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px;">\n${fixedChart}\n</pre>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // D. Generic Code Blocks
+    clean = clean.replace(/```(?:html|javascript|python|css|json)?\s*([\s\S]*?)```/gi, (_, code) => {
+      const slot = `<div class="code-block" style="background:var(--bg-tertiary); padding:12px; border-radius:8px; font-family:var(--font-mono); font-size:0.85rem; margin:12px 0; overflow-x:auto; border:1px solid var(--border);">${code.trim()}</div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // E. Legacy Tags
+    clean = clean.replace(/!?\[(WIKI_DIAGRAM|REAL_PHOTO|IMAGE):\s*(.+?)\]/gi, (_, type, q) => {
+      const safe = q.trim().replace(/['"]/g, '');
+      const id = 'ds-vis-' + Math.floor(Math.random() * 9999999);
+      const slot = `<div id="${id}" class="visual-slot" data-query="${safe}" data-type="image" style="text-align:center;margin:16px 0;background:var(--bg-tertiary);border-radius:12px;overflow:hidden;min-height:180px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-color);">
+         <div class="skeleton-text">🎨 Generating visual for "${safe.substring(0, 20)}..."</div>
+       </div>`;
+      const p = `@@@VISUAL_SLOT_${placeholders.length}@@@`;
+      placeholders.push(slot);
+      return p;
+    });
+
+    // 2. TRANSFORMATION - Format remaining neutral text
+
+    // Strip remaining lone backticks
+    clean = clean.replace(/```/g, '');
 
     // ── Strip LaTeX delimiters so they render as readable plain text ──────────
     // \( ... \)  →  just the inner expression
@@ -517,25 +559,9 @@ MANDATORY CONTENT INCLUSION:
     // Auto-fix mathematical superscripts (e.g. x^2 -> x<sup>2</sup>)
     clean = clean.replace(/([a-zA-Z0-9)])\^([a-zA-Z0-9]+)/g, '$1<sup>$2</sup>');
 
-    // Convert [WIKI_DIAGRAM:] → diagram slot
-    clean = clean.replace(/!?\[WIKI_DIAGRAM:\s*(.+?)\]/gi, (_, q) => {
-      const safe = q.trim().replace(/[^a-zA-Z0-9\s]/g, '');
-      const id = 'ds-diag-' + Math.floor(Math.random() * 9999999);
-      return `<div id="${id}" class="ds-diagram-slot" data-query="${safe}" data-type="diagram" style="text-align:center;margin:16px 0;padding:12px;font-size:0.85rem;color:var(--text-secondary);">📐 Generating diagram for "${safe}"…</div>`;
-    });
-
-    // Convert [REAL_PHOTO:] → photo slot
-    clean = clean.replace(/!?\[REAL_PHOTO:\s*(.+?)\]/gi, (_, q) => {
-      const safe = q.trim().replace(/[^a-zA-Z0-9\s]/g, '');
-      const id = 'ds-diag-' + Math.floor(Math.random() * 9999999);
-      return `<div id="${id}" class="ds-diagram-slot" data-query="${safe}" data-type="photo" style="text-align:center;margin:16px 0;padding:12px;font-size:0.85rem;color:var(--text-secondary);">📷 Loading photo for "${safe}"…</div>`;
-    });
-
-    // Handle any leftover old [IMAGE:] tags (safety net)
-    clean = clean.replace(/!?\[IMAGE:\s*(.+?)\]/gi, (_, q) => {
-      const safe = q.trim().replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 80);
-      const id = 'ds-diag-' + Math.floor(Math.random() * 9999999);
-      return `<div id="${id}" class="ds-diagram-slot" data-query="${safe}" data-type="diagram" style="text-align:center;margin:16px 0;padding:12px;font-size:0.85rem;color:var(--text-secondary);">📐 Generating diagram for "${safe}"…</div>`;
+    // 3. RESTORATION - Put visuals back in
+    placeholders.forEach((slot, i) => {
+      clean = clean.replace(`@@@VISUAL_SLOT_${i}@@@`, slot);
     });
 
     return clean;
@@ -543,68 +569,13 @@ MANDATORY CONTENT INCLUSION:
 
   let errorDetails = [];
 
-  // ── 1. Pollinations (Free, Primary) ───────────────────────────────────
-  const pollinationModels = ["openai", "mistral"];
-  for (const model of pollinationModels) {
-    try {
-      const res = await fetch("https://text.pollinations.ai/", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
-          seed: 42
-        })
-      });
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.length > 10) return contextHeader + cleanHtml(text);
-      } else {
-        errorDetails.push(`Pollinations (${model}): ${res.status}`);
-      }
-    } catch (e) {
-      errorDetails.push(`Pollinations (${model}): ${e.message}`);
-    }
+  try {
+    const text = await generateContent(messages);
+    if (text) return contextHeader + cleanHtml(text);
+  } catch (e) {
+    errorDetails.push(`AI Client Failed: ${e.message}`);
   }
 
-  // ── 2. Puter.js (Fallback 1) ──────────────────────────────────────────
-  const puterModels = ['claude-3-7-sonnet', 'gpt-4o', 'claude-3-5-sonnet'];
-  for (const model of puterModels) {
-    try {
-      if (typeof puter !== 'undefined' && puter.ai) {
-        const resp = await puter.ai.chat(messages, { model });
-        const text = resp?.message?.content || resp?.content || (typeof resp === 'string' ? resp : '');
-        if (text && text.length > 30) return contextHeader + cleanHtml(text);
-      }
-    } catch (e) { errorDetails.push(`Puter (${model}): ${e.message || 'Error'}`); }
-  }
-
-  // ── 3. Gemini API (Fallback 2) ────────────────────────────────────────
-  const GEMINI_KEY = "AIzaSyBxkr2pIizg7eLOo5GmWHLj329uJQPwtyw";
-  const GEMINI_MODELS = ["gemini-1.5-flash-latest", "gemini-2.0-flash-lite-preview-02-05"];
-  for (const model of GEMINI_MODELS) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: geminiUserParts }],
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.2, maxOutputTokens: 3000 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.length > 30) return contextHeader + cleanHtml(text);
-      } else {
-        const errText = await res.text();
-        if (errText.includes("funding") || errText.includes("quota") || res.status === 429) {
-          errorDetails.push(`Gemini (${model}): Limit Reached`);
-          break;
-        }
-        errorDetails.push(`Gemini (${model}): ${res.status}`);
-      }
-    } catch (e) { errorDetails.push(`Gemini (${model}): Network Error`); }
-  }
 
   return `<div class="card" style="padding:16px; border: 1px solid var(--accent-rose); color: var(--accent-rose);">
     <div style="font-weight:bold;margin-bottom:8px;">⚠️ Connection to "Vidhyasethu" AI Failed</div>
