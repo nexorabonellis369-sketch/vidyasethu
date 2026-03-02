@@ -27,31 +27,44 @@ function getKey(provider) {
  * @returns {Promise<string>} The generated text content
  */
 export async function generateContent(messages, options = {}) {
-    const providers = [
+    // Priority: Free/Unlimited providers first to ensure cost-efficiency and reliability
+    const freeProviders = [
+        { name: 'pollinations', fn: (msgs, opts) => callPollinations(msgs, opts) }
+    ];
+
+    const premiumProviders = [
         { name: 'groq', fn: callGroq },
         { name: 'github', fn: callGitHub },
         { name: 'openrouter', fn: callOpenRouter },
         { name: 'gemini', fn: callGemini }
     ];
 
-    // Try providers that have keys
-    for (const provider of providers) {
+    // 1. Try Free Providers First
+    for (const provider of freeProviders) {
+        try {
+            console.log(`[AI Client] Attempting with Free ${provider.name}...`);
+            const result = await provider.fn(messages, options);
+            if (result) return result;
+        } catch (e) {
+            console.warn(`[AI Client] Free ${provider.name} failed:`, e);
+        }
+    }
+
+    // 2. Fallback to Premium Providers if keys exist
+    for (const provider of premiumProviders) {
         const key = getKey(provider.name);
         if (key) {
             try {
-                console.log(`[AI Client] Attempting with ${provider.name}...`);
+                console.log(`[AI Client] Falling back to ${provider.name}...`);
                 const result = await provider.fn(key, messages, options);
                 if (result) return result;
             } catch (e) {
                 console.error(`[AI Client] ${provider.name} failed:`, e);
-                // Continue to the next available provider if this one fails
             }
         }
     }
 
-    // Fallback to Free Pollinations AI if no keys exist or all premium providers failed
-    console.log(`[AI Client] Falling back to Free Pollinations AI...`);
-    return await callPollinations(messages, options);
+    throw new Error("All AI providers (free and premium) failed. Please try again later.");
 }
 
 // --- Provider Implementations --- //
@@ -135,46 +148,65 @@ async function callGemini(key, messages, options) {
 }
 
 async function callPollinations(messages, options) {
-    const pollinationModels = ["openai-large", "claude-large", "deepseek", "grok", "mistral"];
+    // Use a wider variety of models for higher reliability and "multiple" free AI effect
+    const pollinationModels = [
+        "gemini-2.0-flash", // Ultra fast latest
+        "gemini-1.5-flash", // Fast stable
+        "openai-large",
+        "claude-large",
+        "deepseek",
+        "grok",
+        "mistral",
+        "llama-3.1-70b"
+    ];
+
+    const systemMessage = messages.find(m => m.role === 'system')?.content || '';
+    const userMessage = messages.find(m => m.role === 'user')?.content || '';
+
+    // Strategy 1: Attempt JSON/POST completions with various models
     for (const model of pollinationModels) {
         try {
+            console.log(`[Pollinations] Trying model: ${model}`);
             const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     model: model,
                     messages: messages,
-                    temperature: 0.5,
-                    seed: Math.floor(Math.random() * 1000)
+                    temperature: 0.7,
+                    seed: Math.floor(Math.random() * 1000000)
                 })
             });
+
             if (res.ok) {
                 const data = await res.json();
                 const text = data?.choices?.[0]?.message?.content || '';
+                // Quality check: avoid extremely short or error-like responses
                 if (text && text.length > 50 && !text.includes('deprecated') && !text.includes('Pollinations legacy')) {
+                    console.log(`[Pollinations] Success with ${model}`);
                     return text;
                 }
             }
         } catch (e) {
-            console.warn(`[Pollinations] Failed with model ${model}`, e);
+            console.warn(`[Pollinations] Failed with model ${model}:`, e.message);
         }
     }
 
-    // Last resort GET fallback
+    // Strategy 2: Last resort GET fallback (highly reliable but less controllable)
     if (!options.jsonMode) {
         try {
-            const systemMessage = messages.find(m => m.role === 'system')?.content || '';
-            const userMessage = messages.find(m => m.role === 'user')?.content || '';
+            console.log(`[Pollinations] Attempting last-resort GET fallback...`);
             const usr = encodeURIComponent(userMessage);
-            const res = await fetch(`https://gen.pollinations.ai/text/${usr}?model=openai&system=${encodeURIComponent(systemMessage.substring(0, 500))}`);
+            const sys = encodeURIComponent(systemMessage.substring(0, 1000));
+            const res = await fetch(`https://gen.pollinations.ai/text/${usr}?model=openai&system=${sys}&seed=${Math.floor(Math.random() * 99999)}`);
             if (res.ok) {
                 const text = await res.text();
-                if (text && text.length > 50 && !text.includes('deprecated')) return text;
+                if (text && text.length > 20) return text;
             }
         } catch (e) {
-            console.error("[Pollinations] Last resort GET failed", e);
+            console.error("[Pollinations] Last resort GET failed:", e);
         }
     }
 
-    throw new Error("All AI providers and fallbacks failed.");
+    return null; // Return null so the main loop can fall back to premium if available
 }

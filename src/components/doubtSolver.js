@@ -277,8 +277,9 @@ export async function renderVisuals(container) {
     if (!query) return;
 
     if (type === 'image') {
-      const seed = Math.floor(Math.random() * 10000);
-      const imageUrl = `/ai-img/${encodeURIComponent(query)}?width=1024&height=768&nologo=true&enhance=true&seed=${seed}`;
+      const seed = Math.floor(Math.random() * 9999999);
+      // Use premium-like parameters for 'Gemini 3' inspired quality
+      const imageUrl = `/ai-img/${encodeURIComponent(query)}?width=1280&height=720&nologo=true&enhance=true&seed=${seed}&model=flux`;
 
       // Show loading state
       slot.innerHTML = `
