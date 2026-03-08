@@ -3,11 +3,18 @@
  * Primary: Google Gemini API | Fallback: OpenRouter
  */
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const getGeminiUrl = () => {
+    const key = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!key) console.warn('[AI Client] MISSING VITE_GEMINI_API_KEY in environment.');
+    return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+};
 
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+const getOpenRouterKey = () => {
+    const key = import.meta.env.VITE_OPENROUTER_API_KEY;
+    if (!key) console.warn('[AI Client] MISSING VITE_OPENROUTER_API_KEY in environment.');
+    return key || '';
+};
 // Models in priority order — Comprehensive Primary Tier
 const FALLBACK_MODELS = [
     'google/gemini-2.0-flash-exp:free',
@@ -53,7 +60,7 @@ async function callGemini(messages, options = {}) {
     }
 
     try {
-        const response = await fetch(GEMINI_API_URL, {
+        const response = await fetch(getGeminiUrl(), {
             method: 'POST',
             signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
@@ -140,7 +147,7 @@ export async function generateContent(messages, options = {}) {
                 method: "POST",
                 signal: controller.signal,
                 headers: {
-                    "Authorization": `Bearer ${OPENROUTER_API_KEY.trim()}`,
+                    "Authorization": `Bearer ${getOpenRouterKey().trim()}`,
                     "HTTP-Referer": "https://vidyasetu-official.pages.dev",
                     "X-Title": "Vidyasetu Academic Assistant",
                     "Content-Type": "application/json"
