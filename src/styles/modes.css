@@ -1,0 +1,453 @@
+/* ============================================
+   Mode-specific Styles
+   ============================================ */
+
+/* --- Dashboard --- */
+.dashboard-hero {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    padding: clamp(20px, 5vw, 36px) clamp(16px, 4vw, 32px);
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+}
+
+.dashboard-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.dashboard-hero h1 {
+    font-size: 1.8rem;
+    font-weight: 800;
+    margin-bottom: 8px;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.dashboard-hero p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    max-width: 600px;
+    line-height: 1.6;
+}
+
+.dashboard-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+}
+
+.mode-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.mode-card {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.mode-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--gradient-primary);
+    opacity: 0;
+    transition: opacity var(--transition-normal);
+    pointer-events: none;
+    border-radius: var(--radius-lg);
+}
+
+.mode-card:hover::after {
+    opacity: 0.03;
+}
+
+.mode-card .card-icon.cyan {
+    background: var(--accent-cyan-dim);
+    color: var(--accent-cyan);
+}
+
+.mode-card .card-icon.purple {
+    background: var(--accent-purple-dim);
+    color: var(--accent-purple);
+}
+
+.mode-card .card-icon.amber {
+    background: var(--accent-amber-dim);
+    color: var(--accent-amber);
+}
+
+.mode-card .card-icon.emerald {
+    background: var(--accent-emerald-dim);
+    color: var(--accent-emerald);
+}
+
+.mode-card .card-icon.rose {
+    background: var(--accent-rose-dim);
+    color: var(--accent-rose);
+}
+
+.semester-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.semester-card {
+    text-align: center;
+    cursor: pointer;
+    padding: 18px 12px;
+}
+
+.semester-card .sem-num {
+    font-size: 1.6rem;
+    font-weight: 800;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.semester-card .sem-label {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+}
+
+.semester-card .sem-courses {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* --- Topic Notes --- */
+.notes-content {
+    animation: fadeIn 0.4s ease;
+}
+
+.notes-content h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 24px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.notes-content h3 {
+    font-size: 0.98rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 18px 0 8px;
+}
+
+.notes-content p {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    margin: 6px 0;
+    line-height: 1.7;
+}
+
+.notes-content ul,
+.notes-content ol {
+    padding-left: 20px;
+    margin: 8px 0;
+}
+
+.notes-content li {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 4px 0;
+    line-height: 1.6;
+}
+
+.notes-content li strong {
+    color: var(--text-primary);
+}
+
+/* --- Exam Planner --- */
+.planner-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 768px) {
+    .planner-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.unit-weight-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+}
+
+.unit-weight-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    min-width: 80px;
+}
+
+.unit-weight-track {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-input);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.unit-weight-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-full);
+    transition: width 0.6s ease;
+}
+
+.unit-weight-pct {
+    font-size: 0.72rem;
+    color: var(--accent-cyan);
+    font-weight: 600;
+    min-width: 32px;
+    text-align: right;
+}
+
+/* --- Lab Helper --- */
+.lab-section {
+    margin: 16px 0;
+}
+
+.lab-section-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.lab-section-content {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    padding-left: 16px;
+}
+
+/* --- Real World --- */
+.scenario-card {
+    border-left: 3px solid var(--accent-purple);
+    padding-left: 16px;
+    margin: 16px 0;
+}
+
+.scenario-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--accent-purple);
+    margin-bottom: 6px;
+}
+
+.scenario-body {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.ascii-diagram {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin: 10px 0;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--accent-emerald);
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.4;
+}
+
+/* --- Revision plan table --- */
+.revision-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.82rem;
+}
+
+.revision-table th {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.revision-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.revision-table tr:hover td {
+    background: var(--bg-card-hover);
+}
+
+/* Topic notes print button */
+.print-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 40;
+}
+
+@keyframes load-progress {
+    0% {
+        width: 0%;
+    }
+
+    30% {
+        width: 40%;
+    }
+
+    70% {
+        width: 75%;
+    }
+
+    100% {
+        width: 95%;
+    }
+}
+
+@media print {
+
+    /* Hide ALL non-content UI elements */
+    .print-btn,
+    .sidebar,
+    .top-bar,
+    .bottom-nav,
+    .sidebar-overlay,
+    #notes-action-bar {
+        display: none !important;
+    }
+
+    /* Full-width content */
+    .main-content {
+        margin-left: 0 !important;
+    }
+
+    .content-area {
+        padding: 0 24px !important;
+    }
+
+    body {
+        background: #fff !important;
+        color: #000 !important;
+    }
+
+    .notes-content,
+    #printable-notes {
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+
+    /* Readable colors */
+    .notes-content h2,
+    .notes-content h3 {
+        color: #000 !important;
+    }
+
+    .notes-content p,
+    .notes-content li {
+        color: #333 !important;
+    }
+
+    .badge {
+        border: 1px solid #ccc !important;
+        color: #000 !important;
+    }
+
+    /* Break pages before major sections */
+    .notes-content h2 {
+        page-break-before: auto;
+        margin-top: 32px;
+    }
+
+    /* Ensure images and code blocks print cleanly */
+    img {
+        max-width: 100% !important;
+        page-break-inside: avoid;
+    }
+
+    pre,
+    .code-block,
+    .formula-block {
+        page-break-inside: avoid;
+    }
+
+    /* Card borders for print */
+    .card,
+    .card-premium,
+    .card-glass {
+        border: 1px solid #ddd !important;
+        background: #fff !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+    }
+}
+
+/* --- Video & Visual Slots --- */
+.visual-slot {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    margin: 24px 0;
+    transition: transform var(--transition-bounce);
+    overflow: hidden;
+}
+
+.visual-slot:hover {
+    transform: translateY(-2px);
+}
+
+.skeleton-text {
+    color: var(--text-tertiary);
+    font-size: 0.82rem;
+    font-style: italic;
+    padding: 24px;
+    text-align: center;
+    animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+}

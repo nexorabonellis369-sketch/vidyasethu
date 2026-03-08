@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Vidyasetu - Academic Companion for PSG College of Technology students under 2024 Regulations." />
+  <meta name="theme-color" content="#06b6d4" />
+  <title>Vidyasetu</title>
+
+  <!-- iOS PWA Support -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Vidyasetu">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/logo.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/logo.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/logo.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/logo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles/index.css" />
+  <link rel="stylesheet" href="/src/styles/components.css" />
+  <link rel="stylesheet" href="/src/styles/modes.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.8.0/dist/mermaid.min.js"></script>
+</head>
+
+<body>
+  <div id="app">
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-image">
+            <img src="/logo.png" alt="Vidyasetu Logo" width="36" height="36"
+              onerror="this.style.display='none'; this.parentNode.classList.add('fallback-logo')">
+          </div>
+          <div class="logo-text">
+            <span class="logo-title">Vidyasetu</span>
+            <span class="logo-subtitle">PSG Tech · 2024 Reg</span>
+          </div>
+        </div>
+        <button id="sidebar-close" class="sidebar-close" aria-label="Close sidebar">✕</button>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input type="text" id="global-search" placeholder="Search topics, courses..." autocomplete="off" />
+          <button id="global-voice" class="voice-search-btn" title="Voice Search">🎤</button>
+        </div>
+        <div id="search-results" class="search-results hidden"></div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">MODES</div>
+          <button class="nav-item active" data-mode="dashboard">
+            <span class="nav-icon">🏠</span>
+            <span>Dashboard</span>
+          </button>
+          <button class="nav-item" data-mode="topic_notes_pdf">
+            <span class="nav-icon">📚</span>
+            <span>Study Material</span>
+          </button>
+          <button class="nav-item" data-mode="user_notes">
+            <span class="nav-icon">📁</span>
+            <span>Saved Notes</span>
+          </button>
+          <button class="nav-item" data-mode="exam_planner">
+            <span class="nav-icon">📊</span>
+            <span>Exam Planner</span>
+          </button>
+          <button class="nav-item" data-mode="lab_helper">
+            <span class="nav-icon">🔬</span>
+            <span>Lab Helper</span>
+          </button>
+          <button class="nav-item" data-mode="doubt_solver">
+            <span class="nav-icon">🤔</span>
+            <span>Doubt Solver</span>
+          </button>
+          <button class="nav-item" data-mode="real_world_visual">
+            <span class="nav-icon">🌎</span>
+            <span>Real-World</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">SEMESTERS</div>
+          <div id="semester-nav"></div>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="footer-badge">2024 Regulations</div>
+        <div class="footer-credits">v5.1.0</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="main-content" class="main-content">
+      <header class="top-bar">
+        <button id="sidebar-toggle" class="hamburger" aria-label="Toggle sidebar">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="breadcrumb" id="breadcrumb">
+          <span>Dashboard</span>
+        </div>
+        <div class="top-bar-actions">
+          <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div id="content-area" class="content-area">
+        <!-- Dynamic content loaded here -->
+      </div>
+    </main>
+
+
+    <!-- Bottom Navigation (Mobile) -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="bottom-nav-item active" data-mode="dashboard">
+        <span class="bottom-nav-icon">🏠</span>
+        <span class="bottom-nav-label">Home</span>
+      </button>
+      <button class="bottom-nav-item" data-mode="topic_notes_pdf">
+        <span class="bottom-nav-icon">📚</span>
+        <span class="bottom-nav-label">Study</span>
+      </button>
+      <button class="bottom-nav-item" data-mode="user_notes">
+        <span class="bottom-nav-icon">📁</span>
+        <span class="bottom-nav-label">Saved</span>
+      </button>
+      <button class="bottom-nav-item" data-mode="doubt_solver">
+        <span class="bottom-nav-icon">🤔</span>
+        <span class="bottom-nav-label">Doubt</span>
+      </button>
+      <button class="bottom-nav-item" data-mode="profile">
+        <span class="bottom-nav-icon">👤</span>
+        <span class="bottom-nav-label">Profile</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Registration moved to main.js for bundling -->
+  <script type="module" src="/src/main.js"></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    }
+  </script>
+</body>
+
+</html>
