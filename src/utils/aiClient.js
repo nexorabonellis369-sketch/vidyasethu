@@ -324,38 +324,84 @@ export async function fetchWikipediaContent(topic) {
                 if (currentSection.content.length > 0) sections.push(currentSection);
                 currentSection = { title: trimmed.replace(/=/g, '').trim(), content: [] };
             } else {
-                currentSection.content.push(trimmed);
+                currentSection.content.push(trimmed.replace(/\[\d+\]/g, '').replace(/\[edit\]/g, '')); // Clean citations
             }
         }
         if (currentSection.content.length > 0) sections.push(currentSection);
 
-        // 4. Format as rich study notes HTML (limit to first 5 sections to avoid overflow)
-        const importantSections = sections.slice(0, 5);
-        const sectionsHTML = importantSections.map(section => {
-            const paragraphs = section.content.slice(0, 6).map(p => `<p style="margin-bottom:10px; line-height:1.8;">${p}</p>`).join('');
-            return `
-                <div style="margin-bottom: 24px;">
-                    <h3 style="color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
-                        📖 ${section.title}
-                    </h3>
-                    ${paragraphs}
-                </div>`;
-        }).join('');
+        // 4. Map Sections to AI-Style Structure
+        const overview = sections.find(s => s.title.toLowerCase().includes('overview') || s.title.toLowerCase() === 'introduction') || sections[0];
+        const applications = sections.find(s => s.title.toLowerCase().includes('application') || s.title.toLowerCase().includes('use')) || sections.find(s => s.content.length > 5 && s.title !== overview.title);
+        const historyOrTheory = sections.find(s => s.title.toLowerCase().includes('theory') || s.title.toLowerCase().includes('history') || s.title.toLowerCase().includes('principles')) || sections[1];
+
+        const definitionText = overview.content.slice(0, 3).join(' ');
+        const summaryText = overview.content.slice(0, 1).join(' ');
 
         return `
             <div class="wiki-fallback-notes">
-                <div class="callout callout-info" style="margin-bottom: 20px;">
+                <div class="callout callout-info" style="margin-bottom: 24px;">
                     <div class="callout-icon">📚</div>
                     <div>
-                        <strong>Sourced from Wikipedia — ${pageTitle}</strong>
-                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently at capacity. Providing verified encyclopedic research. Full article: <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan);">Wikipedia: ${pageTitle}</a></p>
+                        <strong>Wikipedia Resource: ${pageTitle}</strong>
+                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently busy. Synthesizing verified encyclopedic research into study format.</p>
                     </div>
                 </div>
-                ${sectionsHTML}
-                <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary);">
-                    💡 <strong>Tip:</strong> For AI-powered notes with diagrams and real-world examples, try again when the service is less busy.
+
+                <div class="aesthetic-header" style="margin-top:0;">
+                    <h3>📘 ${pageTitle}</h3>
+                </div>
+
+                <!-- Cornell Layout: Core Definition -->
+                <div class="cornell-layout">
+                    <div class="cornell-cues">
+                        <div style="margin-bottom:12px;"><strong>Definition</strong></div>
+                        <div style="margin-bottom:12px;"><strong>Context</strong></div>
+                        <div><strong>Source</strong></div>
+                    </div>
+                    <div class="cornell-notes">
+                        <p class="key-idea">${definitionText}</p>
+                        <p class="key-idea">As discussed in <em>${pageTitle}</em>, this concept is fundamental to understanding technical principles in this field.</p>
+                    </div>
+                </div>
+                <div class="cornell-summary">💡 Summary: ${summaryText}</div>
+
+                <!-- Exam Strategy -->
+                <div class="aesthetic-header"><h3>📐 Study Strategy for ${pageTitle}</h3></div>
+                <div class="flow-container">
+                    <div class="flow-box">1️⃣ Read Definition</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-box">2️⃣ Explore Theories</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-box">3️⃣ Identify Use-Cases</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-box">4️⃣ Final Revision</div>
+                </div>
+
+                <!-- Bujo Key Points -->
+                <div class="aesthetic-header"><h3>⭐ Important Concepts (from Wikipedia)</h3></div>
+                <ul class="bujo-list">
+                    ${sections.slice(0, 4).map(s => `
+                        <li class="bujo-item">
+                            <span class="bujo-symbol">★</span>
+                            <div class="bujo-text"><strong>${s.title}:</strong> ${s.content[0]?.substring(0, 150) || 'Detailed principles and scientific overview.'}...</div>
+                        </li>
+                    `).join('')}
+                </ul>
+
+                ${applications ? `
+                <div class="aesthetic-header"><h3>🌍 Industrial & Real-World Context</h3></div>
+                <div class="card-premium" style="padding:20px; border:1px solid var(--accent-amber-dim); background:var(--bg-tertiary);">
+                    <div style="color:var(--accent-amber); font-weight:700; margin-bottom:10px;">Industrial Application Notes:</div>
+                    <p style="font-size:0.88rem; line-height:1.7; color:var(--text-secondary);">${applications.content.slice(0, 3).join(' ')}</p>
+                </div>` : ''}
+
+                <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary); border:1px dashed var(--border-color);">
+                    💡 <strong>Full Verification:</strong> For the full original article, visit <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan); font-weight:600;">Wikipedia: ${pageTitle}</a>
                 </div>
             </div>`;
+                    💡 <strong>Tip:</strong> For AI - powered notes with diagrams and real - world examples, try again when the service is less busy.
+                </div >
+            </div > `;
     } catch (e) {
         console.warn("Wikipedia Content Fetch failed:", e);
         return null;
