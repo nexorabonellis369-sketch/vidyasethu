@@ -15,13 +15,15 @@ const getOpenRouterKey = () => {
     if (!key) console.warn('[AI Client] MISSING VITE_OPENROUTER_API_KEY in environment.');
     return key || '';
 };
-// Models in priority order — Comprehensive Primary Tier
+// Models in priority order — Comprehensive Primary Tier for maximum reliability
 const FALLBACK_MODELS = [
-    'google/gemini-2.0-flash-exp:free',
+    'google/gemini-2.0-flash-001',
+    'google/gemini-2.0-flash-lite-preview-02-05:free',
     'openai/gpt-4o-mini',
+    'deepseek/deepseek-chat',
+    'anthropic/claude-3-haiku',
     'meta-llama/llama-3.3-70b-instruct:free',
     'mistralai/mistral-7b-instruct:free',
-    'google/gemma-3-12b-it:free',
     'qwen/qwen-2.5-72b-instruct:free',
 ];
 const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
@@ -86,45 +88,47 @@ async function callGemini(messages, options = {}) {
 }
 
 /**
- * Sends a chat completion request. Tries Gemini first, then OpenRouter fallbacks.
- * Can be forced to use the "Online Search" tier.
+ * Sends a chat completion request. Tries direct Gemini first, then loops through all fallback models sequentially.
  */
 export async function generateContent(messages, options = {}) {
     const temperature = options.temperature ?? 0.7;
+    const totalModels = 1 + (options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS).length;
+    let attemptCount = 0;
 
-    // 1. Try Gemini first (primary — fast & free)
+    // 1. Try Direct Google Gemini first
     try {
-        if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
+        attemptCount++;
+        if (options.onProgress) options.onProgress(`[Attempt ${attemptCount}/${totalModels}] Consulting Gemini 2.0 (Primary)...`);
         const result = await callGemini(messages, options);
-        if (result && result.trim().length > 5) { // reduced from 10 to 5
-            return result; // Return RAW markdown
-        }
+        if (result && result.trim().length > 5) return result;
     } catch (geminiErr) {
-        console.error('[AI Client] Gemini failed:', geminiErr.message);
+        console.warn('[AI Client] Direct Gemini failed:', geminiErr.message);
     }
 
-    // 1. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
-    // If 'useOnlineSearch' is set, we skip to the online model
+    // 2. Loop through Fallback Models via OpenRouter
     const baseModels = options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS;
     const modelsToTry = options.model ? [options.model, ...baseModels] : baseModels;
     let lastError = null;
 
     for (const model of modelsToTry) {
-        // Skip models that don't support vision if an image is provided
+        attemptCount++;
+        const modelName = model.split('/')[1] || model;
+
+        // Skip vision-less models if image is provided
         if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude')) {
+            console.log(`[AI Client] Skipping ${modelName} (No Vision support)`);
             continue;
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // reduced from 20s to 12s
-        try {
-            if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-            console.log(`[AI Client] Fallback: ${model}...`);
+        try {
+            if (options.onProgress) options.onProgress(`[Attempt ${attemptCount}/${totalModels}] Trying ${modelName}...`);
+            console.log(`[AI Client] Attempting ${model}...`);
 
             const routerMessages = [...messages];
             if (options.image) {
-                // OpenRouter/GPT-4o style multimodal message
                 const lastIdx = routerMessages.length - 1;
                 const lastMsg = routerMessages[lastIdx];
                 if (lastMsg.role === 'user') {
@@ -134,9 +138,7 @@ export async function generateContent(messages, options = {}) {
                             { type: "text", text: lastMsg.content },
                             {
                                 type: "image_url",
-                                image_url: {
-                                    url: `data:${options.imageType || "image/jpeg"};base64,${options.image}`
-                                }
+                                image_url: { url: `data:${options.imageType || "image/jpeg"};base64,${options.image}` }
                             }
                         ]
                     };
@@ -157,27 +159,26 @@ export async function generateContent(messages, options = {}) {
                     messages: routerMessages,
                     temperature: temperature,
                     max_tokens: options.max_tokens || 2000,
-                    // Safety: Force plain text math in labels if models try to be too smart
                     system_prompt: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
                 })
             });
+
             clearTimeout(timeoutId);
             const data = await response.json();
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    console.error("[AI Client] Auth Error: Missing or Invalid API Key/Header.");
-                }
-                throw new Error(data.error?.message || `HTTP ${response.status}`);
-            }
+
+            if (!response.ok) throw new Error(data.error?.message || `HTTP ${response.status}`);
             if (!data.choices?.length) throw new Error("Empty response from OpenRouter");
-            return data.choices[0].message.content; // Return RAW markdown
+
+            return data.choices[0].message.content;
         } catch (error) {
-            console.warn(`[AI Client] ${model} failed:`, error.message);
+            console.warn(`[AI Client] ${modelName} failed:`, error.message);
             lastError = error;
+            // Brief pause before next retry
+            await new Promise(r => setTimeout(r, 500));
         }
     }
 
-    throw lastError || new Error("All AI models failed.");
+    throw lastError || new Error("All available AI models failed after sequential retries.");
 }
 
 /**
