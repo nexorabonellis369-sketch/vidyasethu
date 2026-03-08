@@ -341,7 +341,7 @@ export function renderDoubtSolver(container) {
                         <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent-purple);">AI Explanation</h3>
                     </div>
                     <div class="doubt-response" style="color: var(--text-secondary);">
-                        ${marked.parse(response)}
+                        ${typeof marked !== 'undefined' ? marked.parse(response) : response}
                     </div>
                     <div style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 0.75rem; color: var(--text-tertiary);">
