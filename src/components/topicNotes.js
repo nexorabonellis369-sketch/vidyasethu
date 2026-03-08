@@ -9,7 +9,8 @@ import {
   fetchWikipediaResources,
   fetchWikipediaContent,
   fetchWikipediaImage,
-  fetchWikipediaGallery
+  fetchWikipediaGallery,
+  fetchWikipediaWikitext
 } from '../utils/aiClient.js';
 
 // Previous Mermaid and AI functions removed to simplify the application.
@@ -710,8 +711,14 @@ Use professional PSG Tech level technical language. Format using standard Markdo
             // Stage 1: Primary AI Tier (Gemini, Llama, GPT)
             if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Consulting Primary AI Wave...");
 
+            // Fetch Wikipedia grounding context
+            const wikiContext = await fetchWikipediaWikitext(topic);
+            const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
+${wikiContext ? `GROUNDING REFERENCE (Use these formulas and derivations): \n${wikiContext}\n` : ''}
+No LaTeX. Use simple symbols only.`;
+
             let aiResult = await generateContent([
-              { role: "system", content: "You are a university professor. Provide deep, structured academic notes. No LaTeX." },
+              { role: "system", content: groundedSystemPrompt },
               { role: "user", content: prompt }
             ]).catch(() => null);
 

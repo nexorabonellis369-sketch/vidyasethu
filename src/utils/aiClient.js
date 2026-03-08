@@ -15,20 +15,31 @@ const getOpenRouterKey = () => {
     if (!key) console.warn('[AI Client] MISSING VITE_OPENROUTER_API_KEY in environment.');
     return key || '';
 };
-// Models in priority order — Comprehensive Primary Tier for maximum reliability
+// Models in priority order — Comprehensive Primary Tier
 const FALLBACK_MODELS = [
-    'google/gemini-2.0-flash-001',
-    'google/gemini-2.0-flash-lite-preview-02-05:free',
+    'google/gemini-2.0-flash-exp:free',
     'openai/gpt-4o-mini',
-    'deepseek/deepseek-chat',
-    'anthropic/claude-3-haiku',
     'meta-llama/llama-3.3-70b-instruct:free',
     'mistralai/mistral-7b-instruct:free',
+    'google/gemma-3-12b-it:free',
     'qwen/qwen-2.5-72b-instruct:free',
 ];
 const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
 const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
+
+/**
+ * Strips Wikipedia markup for cleaner AI context
+ */
+function cleanWikitext(text) {
+    if (!text) return "";
+    return text
+        .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1') // [[Link|Text]] -> Text
+        .replace(/\{\{[^}]+\}\}/g, '') // {{Templates}}
+        .replace(/&nbsp;/g, ' ')
+        .replace(/'''/g, '')
+        .replace(/''/g, '');
+}
 
 /**
  * Converts basic Markdown to HTML - DEPRECATED: Use marked.js instead
@@ -88,47 +99,45 @@ async function callGemini(messages, options = {}) {
 }
 
 /**
- * Sends a chat completion request. Tries direct Gemini first, then loops through all fallback models sequentially.
+ * Sends a chat completion request. Tries Gemini first, then OpenRouter fallbacks.
+ * Can be forced to use the "Online Search" tier.
  */
 export async function generateContent(messages, options = {}) {
     const temperature = options.temperature ?? 0.7;
-    const totalModels = 1 + (options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS).length;
-    let attemptCount = 0;
 
-    // 1. Try Direct Google Gemini first
+    // 1. Try Gemini first (primary — fast & free)
     try {
-        attemptCount++;
-        if (options.onProgress) options.onProgress(`[Attempt ${attemptCount}/${totalModels}] Consulting Gemini 2.0 (Primary)...`);
+        if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
         const result = await callGemini(messages, options);
-        if (result && result.trim().length > 5) return result;
+        if (result && result.trim().length > 5) { // reduced from 10 to 5
+            return result; // Return RAW markdown
+        }
     } catch (geminiErr) {
-        console.warn('[AI Client] Direct Gemini failed:', geminiErr.message);
+        console.error('[AI Client] Gemini failed:', geminiErr.message);
     }
 
-    // 2. Loop through Fallback Models via OpenRouter
+    // 1. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
+    // If 'useOnlineSearch' is set, we skip to the online model
     const baseModels = options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS;
     const modelsToTry = options.model ? [options.model, ...baseModels] : baseModels;
     let lastError = null;
 
     for (const model of modelsToTry) {
-        attemptCount++;
-        const modelName = model.split('/')[1] || model;
-
-        // Skip vision-less models if image is provided
+        // Skip models that don't support vision if an image is provided
         if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude')) {
-            console.log(`[AI Client] Skipping ${modelName} (No Vision support)`);
             continue;
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
+        const timeoutId = setTimeout(() => controller.abort(), 12000); // reduced from 20s to 12s
         try {
-            if (options.onProgress) options.onProgress(`[Attempt ${attemptCount}/${totalModels}] Trying ${modelName}...`);
-            console.log(`[AI Client] Attempting ${model}...`);
+            if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
+
+            console.log(`[AI Client] Fallback: ${model}...`);
 
             const routerMessages = [...messages];
             if (options.image) {
+                // OpenRouter/GPT-4o style multimodal message
                 const lastIdx = routerMessages.length - 1;
                 const lastMsg = routerMessages[lastIdx];
                 if (lastMsg.role === 'user') {
@@ -138,7 +147,9 @@ export async function generateContent(messages, options = {}) {
                             { type: "text", text: lastMsg.content },
                             {
                                 type: "image_url",
-                                image_url: { url: `data:${options.imageType || "image/jpeg"};base64,${options.image}` }
+                                image_url: {
+                                    url: `data:${options.imageType || "image/jpeg"};base64,${options.image}`
+                                }
                             }
                         ]
                     };
@@ -159,26 +170,65 @@ export async function generateContent(messages, options = {}) {
                     messages: routerMessages,
                     temperature: temperature,
                     max_tokens: options.max_tokens || 2000,
+                    // Safety: Force plain text math in labels if models try to be too smart
                     system_prompt: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
                 })
             });
-
             clearTimeout(timeoutId);
             const data = await response.json();
-
-            if (!response.ok) throw new Error(data.error?.message || `HTTP ${response.status}`);
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    console.error("[AI Client] Auth Error: Missing or Invalid API Key/Header.");
+                }
+                throw new Error(data.error?.message || `HTTP ${response.status}`);
+            }
             if (!data.choices?.length) throw new Error("Empty response from OpenRouter");
-
-            return data.choices[0].message.content;
+            return data.choices[0].message.content; // Return RAW markdown
         } catch (error) {
-            console.warn(`[AI Client] ${modelName} failed:`, error.message);
+            console.warn(`[AI Client] ${model} failed:`, error.message);
             lastError = error;
-            // Brief pause before next retry
-            await new Promise(r => setTimeout(r, 500));
         }
     }
 
-    throw lastError || new Error("All available AI models failed after sequential retries.");
+    throw lastError || new Error("All AI models failed.");
+}
+
+/**
+ * Fetches raw technical sections from Wikipedia for AI grounding.
+ */
+export async function fetchWikipediaWikitext(topic) {
+    try {
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
+        const searchData = await fetch(searchUrl).then(r => r.json());
+        if (!searchData.query?.search?.length) return "";
+
+        const pageTitle = searchData.query.search[0].title;
+        const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
+        const parseData = await fetch(parseUrl).then(r => r.json());
+
+        if (!parseData.parse?.sections || !parseData.parse?.wikitext) return "";
+
+        const sections = parseData.parse.sections;
+        const fullWikitext = parseData.parse.wikitext['*'];
+
+        // Target sections likely to contain formulas/derivations
+        const targetKeywords = ['math', 'formula', 'derivation', 'theory', 'principle', 'law', 'mechanics', 'quantum', 'electro'];
+        const relevantSectionIndices = sections
+            .filter(s => targetKeywords.some(k => s.line.toLowerCase().includes(k)))
+            .map(s => parseInt(s.index));
+
+        if (relevantSectionIndices.length === 0) return cleanWikitext(fullWikitext.substring(0, 3000));
+
+        // Extract relevant segments by section offsets if possible, or just return the titles + full text for AI to parse
+        // For simplicity and robustness, we provide the section list and the first 5000 chars of wikitext
+        let context = `Source: Wikipedia (${pageTitle})\nRelevant Sections: ${sections.map(s => s.line).join(', ')}\n\n`;
+        context += cleanWikitext(fullWikitext.substring(0, 5000));
+
+        return context;
+    } catch (e) {
+        console.warn("Wikipedia Wikitext fetch failed:", e);
+        return "";
+    }
 }
 
 /**
@@ -324,80 +374,35 @@ export async function fetchWikipediaContent(topic) {
                 if (currentSection.content.length > 0) sections.push(currentSection);
                 currentSection = { title: trimmed.replace(/=/g, '').trim(), content: [] };
             } else {
-                currentSection.content.push(trimmed.replace(/\[\d+\]/g, '').replace(/\[edit\]/g, '')); // Clean citations
+                currentSection.content.push(trimmed);
             }
         }
         if (currentSection.content.length > 0) sections.push(currentSection);
 
-        // 4. Map Sections to AI-Style Structure
-        const overview = sections.find(s => s.title.toLowerCase().includes('overview') || s.title.toLowerCase() === 'introduction') || sections[0];
-        const applications = sections.find(s => s.title.toLowerCase().includes('application') || s.title.toLowerCase().includes('use')) || sections.find(s => s.content.length > 5 && s.title !== overview.title);
-        const historyOrTheory = sections.find(s => s.title.toLowerCase().includes('theory') || s.title.toLowerCase().includes('history') || s.title.toLowerCase().includes('principles')) || sections[1];
-
-        const definitionText = overview.content.slice(0, 3).join(' ');
-        const summaryText = overview.content.slice(0, 1).join(' ');
+        // 4. Format as rich study notes HTML (limit to first 5 sections to avoid overflow)
+        const importantSections = sections.slice(0, 5);
+        const sectionsHTML = importantSections.map(section => {
+            const paragraphs = section.content.slice(0, 6).map(p => `<p style="margin-bottom:10px; line-height:1.8;">${p}</p>`).join('');
+            return `
+                <div style="margin-bottom: 24px;">
+                    <h3 style="color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
+                        📖 ${section.title}
+                    </h3>
+                    ${paragraphs}
+                </div>`;
+        }).join('');
 
         return `
             <div class="wiki-fallback-notes">
-                <div class="callout callout-info" style="margin-bottom: 24px;">
+                <div class="callout callout-info" style="margin-bottom: 20px;">
                     <div class="callout-icon">📚</div>
                     <div>
-                        <strong>Wikipedia Resource: ${pageTitle}</strong>
-                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently busy. Synthesizing verified encyclopedic research into study format.</p>
+                        <strong>Sourced from Wikipedia — ${pageTitle}</strong>
+                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently at capacity. Providing verified encyclopedic research. Full article: <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan);">Wikipedia: ${pageTitle}</a></p>
                     </div>
                 </div>
-
-                <div class="aesthetic-header" style="margin-top:0;">
-                    <h3>📘 ${pageTitle}</h3>
-                </div>
-
-                <!-- Cornell Layout: Core Definition -->
-                <div class="cornell-layout">
-                    <div class="cornell-cues">
-                        <div style="margin-bottom:12px;"><strong>Definition</strong></div>
-                        <div style="margin-bottom:12px;"><strong>Context</strong></div>
-                        <div><strong>Source</strong></div>
-                    </div>
-                    <div class="cornell-notes">
-                        <p class="key-idea">${definitionText}</p>
-                        <p class="key-idea">As discussed in <em>${pageTitle}</em>, this concept is fundamental to understanding technical principles in this field.</p>
-                    </div>
-                </div>
-                <div class="cornell-summary">💡 Summary: ${summaryText}</div>
-
-                <!-- Exam Strategy -->
-                <div class="aesthetic-header"><h3>📐 Study Strategy for ${pageTitle}</h3></div>
-                <div class="flow-container">
-                    <div class="flow-box">1️⃣ Read Definition</div>
-                    <div class="flow-arrow">↓</div>
-                    <div class="flow-box">2️⃣ Explore Theories</div>
-                    <div class="flow-arrow">↓</div>
-                    <div class="flow-box">3️⃣ Identify Use-Cases</div>
-                    <div class="flow-arrow">↓</div>
-                    <div class="flow-box">4️⃣ Final Revision</div>
-                </div>
-
-                <!-- Bujo Key Points -->
-                <div class="aesthetic-header"><h3>⭐ Important Concepts (from Wikipedia)</h3></div>
-                <ul class="bujo-list">
-                    ${sections.slice(0, 4).map(s => `
-                        <li class="bujo-item">
-                            <span class="bujo-symbol">★</span>
-                            <div class="bujo-text"><strong>${s.title}:</strong> ${s.content[0]?.substring(0, 150) || 'Detailed principles and scientific overview.'}...</div>
-                        </li>
-                    `).join('')}
-                </ul>
-
-                ${applications ? `
-                <div class="aesthetic-header"><h3>🌍 Industrial & Real-World Context</h3></div>
-                <div class="card-premium" style="padding:20px; border:1px solid var(--accent-amber-dim); background:var(--bg-tertiary);">
-                    <div style="color:var(--accent-amber); font-weight:700; margin-bottom:10px;">Industrial Application Notes:</div>
-                    <p style="font-size:0.88rem; line-height:1.7; color:var(--text-secondary);">${applications.content.slice(0, 3).join(' ')}</p>
-                </div>` : ''}
-
-                <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary); border:1px dashed var(--border-color);">
-                    💡 <strong>Full Verification:</strong> For the full original article, visit <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan); font-weight:600;">Wikipedia: ${pageTitle}</a>
-                    <br/><br/>
+                ${sectionsHTML}
+                <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary);">
                     💡 <strong>Tip:</strong> For AI-powered notes with diagrams and real-world examples, try again when the service is less busy.
                 </div>
             </div>`;
