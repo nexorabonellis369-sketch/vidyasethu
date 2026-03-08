@@ -715,7 +715,7 @@ Use professional PSG Tech level technical language. Format using standard Markdo
             const wikiContext = await fetchWikipediaWikitext(topic);
             const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
 ${wikiContext ? `GROUNDING REFERENCE (Use these formulas and derivations): \n${wikiContext}\n` : ''}
-No LaTeX. Use simple symbols only.`;
+IMPORTANT FORMATTING: Do NOT evaluate or break down derivations into vertical stacks. Write all math equations, formulas, and derivations horizontally on a single line. Use simple symbols only. No LaTeX.`;
 
             let aiResult = await generateContent([
               { role: "system", content: groundedSystemPrompt },
@@ -726,7 +726,7 @@ No LaTeX. Use simple symbols only.`;
             if (!aiResult) {
               if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Standard AI at capacity. Searching Google AI...");
               aiResult = await generateContent([
-                { role: "system", content: "You are a research assistant with live web access. Provide comprehensive notes. No LaTeX." },
+                { role: "system", content: "You are a research assistant with live web access. Provide comprehensive notes. IMPORTANT FORMATTING: Do NOT stack derivations vertically. Write all math equations horizontally on a single line. No LaTeX." },
                 { role: "user", content: prompt }
               ], { useOnlineSearch: true }).catch(() => null);
             }

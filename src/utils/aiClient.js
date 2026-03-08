@@ -20,11 +20,10 @@ const FALLBACK_MODELS = [
     'google/gemini-2.0-flash-exp:free',
     'openai/gpt-4o-mini',
     'meta-llama/llama-3.3-70b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
     'google/gemma-3-12b-it:free',
+    'mistralai/mistral-7b-instruct:free',
     'qwen/qwen-2.5-72b-instruct:free',
 ];
-const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
 const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
 
@@ -34,11 +33,15 @@ const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
 function cleanWikitext(text) {
     if (!text) return "";
     return text
+        .replace(/<math[^>]*>(.*?)<\/math>/g, ' $1 ') // Extract raw math content
+        .replace(/<sub>(.*?)<\/sub>/g, '_$1') // Convert HTML sub to simple underscore
+        .replace(/<sup>(.*?)<\/sup>/g, '^$1') // Convert HTML sup to simple caret
         .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1') // [[Link|Text]] -> Text
         .replace(/\{\{[^}]+\}\}/g, '') // {{Templates}}
         .replace(/&nbsp;/g, ' ')
         .replace(/'''/g, '')
-        .replace(/''/g, '');
+        .replace(/''/g, '')
+        .replace(/\n+/g, ' '); // Enforce horizontal block flow
 }
 
 /**
@@ -60,7 +63,7 @@ async function callGemini(messages, options = {}) {
     const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsg?.content || ''}` : (userMsg?.content || '');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // reduced from 25s to 15s
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased from 15s to 30s
 
     const parts = [{ text: fullPrompt }];
     if (options.image) {
@@ -73,17 +76,23 @@ async function callGemini(messages, options = {}) {
     }
 
     try {
+        const bodyPayload = {
+            contents: [{ parts: parts }],
+            generationConfig: {
+                temperature: temperature,
+                maxOutputTokens: 4096,
+            }
+        };
+
+        if (options.useGoogleSearch) {
+            bodyPayload.tools = [{ google_search: {} }];
+        }
+
         const response = await fetch(getGeminiUrl(), {
             method: 'POST',
             signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: parts }],
-                generationConfig: {
-                    temperature: temperature,
-                    maxOutputTokens: 4096,
-                }
-            })
+            body: JSON.stringify(bodyPayload)
         });
         clearTimeout(timeoutId);
 
@@ -105,6 +114,18 @@ async function callGemini(messages, options = {}) {
 export async function generateContent(messages, options = {}) {
     const temperature = options.temperature ?? 0.7;
 
+    // 0. Handle Native Google Search explicit request
+    if (options.useGoogleSearch) {
+        if (options.onProgress) options.onProgress("Searching Google AI...");
+        try {
+            const result = await callGemini(messages, options);
+            if (result && result.trim().length > 5) return result;
+        } catch (e) {
+            console.error('[AI Client] Google Search Fallback failed:', e.message);
+        }
+        return null; // Don't fall back to standard models if search was explicitly requested
+    }
+
     // 1. Try Gemini first (primary — fast & free)
     try {
         if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
@@ -116,10 +137,8 @@ export async function generateContent(messages, options = {}) {
         console.error('[AI Client] Gemini failed:', geminiErr.message);
     }
 
-    // 1. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
-    // If 'useOnlineSearch' is set, we skip to the online model
-    const baseModels = options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS;
-    const modelsToTry = options.model ? [options.model, ...baseModels] : baseModels;
+    // 2. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
+    const modelsToTry = options.model ? [options.model, ...FALLBACK_MODELS] : FALLBACK_MODELS;
     let lastError = null;
 
     for (const model of modelsToTry) {
@@ -129,7 +148,7 @@ export async function generateContent(messages, options = {}) {
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // reduced from 20s to 12s
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased from 12s to 30s for complex queries
         try {
             if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
 
@@ -198,13 +217,20 @@ export async function generateContent(messages, options = {}) {
  */
 export async function fetchWikipediaWikitext(topic) {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchData = await fetch(searchUrl).then(r => r.json());
-        if (!searchData.query?.search?.length) return "";
+        const searchData = await fetch(searchUrl, { signal: controller.signal }).then(r => r.json());
+        if (!searchData.query?.search?.length) {
+            clearTimeout(timeoutId);
+            return "";
+        }
 
         const pageTitle = searchData.query.search[0].title;
         const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
-        const parseData = await fetch(parseUrl).then(r => r.json());
+        const parseData = await fetch(parseUrl, { signal: controller.signal }).then(r => r.json());
+        clearTimeout(timeoutId);
 
         if (!parseData.parse?.sections || !parseData.parse?.wikitext) return "";
 
@@ -361,8 +387,19 @@ export async function fetchWikipediaContent(topic) {
         const rawText = pages[pageId].extract;
         if (!rawText) return null;
 
-        // 3. Parse sections from the extracted text
-        const lines = rawText.split('\n');
+        // 3. Pre-process text to remove vertical LaTeX and merge floating math lines
+        let cleanedText = rawText
+            // Extract inner text of displaystyle, keep it inline
+            .replace(/\{\s*\\displaystyle(.*?)\s*\}/g, ' $1 ')
+            // Remove common remaining latex commands
+            .replace(/\\[a-zA-Z]+/g, '')
+            // Aggressively merge short lines that start/end with math characters or commas
+            .replace(/\n\s*([A-Za-z0-9,\s~=+\-*/^_{}()\.]+[,\+\-=]?)\s*\n/gi, ' $1 ')
+            .replace(/\n\s*([,\+\-=~^])/g, ' $1') // If line starts with a punctuation, bring it up
+            .replace(/\n+/g, '\n'); // remove excessive blank lines
+
+        // Parse sections from the cleaned text
+        const lines = cleanedText.split('\n');
         const sections = [];
         let currentSection = { title: 'Overview', content: [] };
 
@@ -382,7 +419,13 @@ export async function fetchWikipediaContent(topic) {
         // 4. Format as rich study notes HTML (limit to first 5 sections to avoid overflow)
         const importantSections = sections.slice(0, 5);
         const sectionsHTML = importantSections.map(section => {
-            const paragraphs = section.content.slice(0, 6).map(p => `<p style="margin-bottom:10px; line-height:1.8;">${p}</p>`).join('');
+            const paragraphs = section.content.slice(0, 6).map(p => {
+                // Style inline math elements to flow horizontally and wrap predictably
+                let styledP = p.replace(/<math[^>]*>(.*?)<\/math>/g, '<span style="white-space: nowrap; font-family: monospace; background: var(--bg-secondary); padding: 2px 4px; border-radius: 4px;"> $1 </span>');
+                styledP = styledP.replace(/_{([^}]+)}/g, '<sub>$1</sub>').replace(/\^{([^}]+)}/g, '<sup>$1</sup>');
+                return `<p style="margin-bottom:12px; line-height:1.8; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">${styledP}</p>`;
+            }).join('');
+
             return `
                 <div style="margin-bottom: 24px;">
                     <h3 style="color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
