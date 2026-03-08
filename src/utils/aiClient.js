@@ -397,11 +397,10 @@ export async function fetchWikipediaContent(topic) {
 
                 <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary); border:1px dashed var(--border-color);">
                     💡 <strong>Full Verification:</strong> For the full original article, visit <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan); font-weight:600;">Wikipedia: ${pageTitle}</a>
+                    <br/><br/>
+                    💡 <strong>Tip:</strong> For AI-powered notes with diagrams and real-world examples, try again when the service is less busy.
                 </div>
             </div>`;
-                    💡 <strong>Tip:</strong> For AI - powered notes with diagrams and real - world examples, try again when the service is less busy.
-                </div >
-            </div > `;
     } catch (e) {
         console.warn("Wikipedia Content Fetch failed:", e);
         return null;
