@@ -1,5 +1,5 @@
 import { labDetails } from '../data/labDetails.js';
-import { generateContent, fetchWikipediaContent } from '../utils/aiClient.js';
+import { generateContent, fetchWikipediaWikitext, wikitextToAcademicHtml } from '../utils/aiClient.js';
 
 export function renderLabHelper(container, { getLabCourses, getCourseByCode }) {
   const labCourses = getLabCourses();
@@ -152,7 +152,8 @@ async function generateSmartGuide(output, course, expName) {
     console.error("Smart guide failed, falling back to Wikipedia:", e);
     // Stage 3: Wikipedia Fallback
     updateStatus("AI Services Unavailable. Fetching Wikipedia Lab Library...");
-    const wikiData = await fetchWikipediaContent(expName);
+    const rawWiki = await fetchWikipediaWikitext(expName);
+    const wikiData = rawWiki ? wikitextToAcademicHtml(rawWiki) : null;
     if (wikiData) {
       output.innerHTML = `
         <div class="notes-content animate-slide">

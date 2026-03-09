@@ -7,7 +7,6 @@ import {
   fetchImageAsBlob,
   getProxiedUrl,
   fetchWikipediaResources,
-  fetchWikipediaContent,
   fetchWikipediaImage,
   fetchWikipediaGallery,
   fetchWikipediaWikitext
@@ -17,8 +16,20 @@ import {
 // This component now provides structural study frameworks for PSG Tech courses.
 
 async function generateTopicResearch(course, unit, topic, level) {
-  // Directly return local notes as AI research has been removed.
-  return generateLocalNotes(course, unit, topic, level);
+  const isAdvanced = level === 'advanced_level';
+  const prompt = isAdvanced
+    ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".`
+    : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}".`;
+
+  try {
+    return await generateContent([
+      { role: "system", content: "You are a university professor providing structured academic notes." },
+      { role: "user", content: prompt }
+    ]);
+  } catch (error) {
+    console.error("AI Research Error:", error);
+    return generateLocalNotes(course, unit, topic, level);
+  }
 }
 
 function generateLocalNotes(course, unit, topic, level) {
@@ -302,16 +313,8 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     return;
   }
 
-  output.innerHTML = `
-    <div class="card-premium" style="padding:24px; margin-bottom: 20px;">
-      <div style="display:flex; align-items:center; gap:16px;">
-        <div style="width: 48px; height: 48px; background: var(--gradient-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">${useAI ? '✨' : '📚'}</div>
-        <div>
-          <strong style="color:var(--text-primary); font-size: 1rem;">${useAI ? (window._bypassCache ? 'Force Regenerating AI...' : 'Synthesizing AI Research...') : 'Preparing Study Material...'}</strong>
-          <div style="font-size:0.82rem; color:var(--text-tertiary); margin-top: 4px;">Assembling notes for <em>${topic}</em></div>
-        </div>
-      </div>
-    </div>`;
+  // Placeholder for initial state before renderFullUI takes over
+  output.innerHTML = `<div style="padding:40px; text-align:center;"><div class="loading-spinner" style="margin:0 auto; width:40px; height:40px; border:4px solid var(--accent-cyan-dim); border-top:4px solid var(--accent-cyan); border-radius:50%; animation:spin 1s linear infinite;"></div></div>`;
 
   // Track current topic on the container to prevent race conditions
   output.dataset.currentTopic = topic;
@@ -365,11 +368,21 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
           </div>
         </div>
 
-        ${status ? `
-          <div class="callout callout-info animate-pulse" style="margin-bottom: 24px; background: rgba(0, 188, 212, 0.1); border: 1px solid var(--accent-cyan);">
-            <div class="callout-icon">⚡</div>
-            <div>
-              <strong>Generation Status:</strong> ${status}
+        ${(isLoadingVisuals || status) ? `
+          <div id="gen-hud" class="card-premium animate-pulse" style="padding:20px; margin-bottom: 24px; border: 1px solid var(--accent-cyan-dim); background: rgba(0, 188, 212, 0.03);">
+            <div style="display:flex; align-items:center; gap:16px;">
+              <div class="loading-spinner" style="width: 32px; height: 32px; border: 3px solid var(--accent-cyan-dim); border-top: 3px solid var(--accent-cyan); border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0;"></div>
+              <div style="flex: 1;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <strong id="gen-status-title" style="color:var(--text-primary); font-size: 0.9rem;">
+                    ${status || 'AI Processing...'}
+                  </strong>
+                  <span id="gen-progress-percent" style="font-size:0.75rem; color:var(--accent-cyan); font-weight:700;">${status ? '15%' : '50%'}</span>
+                </div>
+                <div style="width: 100%; height: 4px; background: var(--bg-tertiary); border-radius: 10px; margin-top: 8px; overflow: hidden;">
+                  <div id="gen-progress-bar" style="width: ${status ? '15%' : '50%'}; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); transition: width 0.5s ease;"></div>
+                </div>
+              </div>
             </div>
           </div>
         ` : ''}
@@ -705,40 +718,38 @@ Include:
 Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
 
       try {
-        // Fetch text notes in background using multi-stage fallback
+        // Fetch text notes in background
         (async () => {
           try {
-            // Stage 1: Primary AI Tier (Gemini + OpenRouter)
-            if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Consulting Primary AI Wave...");
+            if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Generating notes with Pollinations AI...");
 
-            // Fetch Wikipedia grounding context (Used for both AI and as part of final fallback)
-            const wikiContext = await fetchWikipediaWikitext(topic);
-            const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
-${wikiContext ? `GROUNDING REFERENCE (Use these formulas and derivations): \n${wikiContext}\n` : ''}
-No LaTeX. Use simple symbols only.`;
+            const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes for PSG Tech curriculum. 
+Use proper mathematical unicode symbols (like √, x², ÷) or format equations clearly using simple text (like a/b). Do NOT use markdown LaTeX formatting (no $ or $$).`;
 
-            let aiResult = await generateContent([
+            const aiResult = await generateContent([
               { role: "system", content: groundedSystemPrompt },
               { role: "user", content: prompt }
-            ]).catch(() => null);
-
-            // Stage 2: Wikipedia Tier (Final Safety Net)
-            if (!aiResult) {
-              if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "AI Services Busy. Fetching Wikipedia library...");
-              const wikiNotes = await fetchWikipediaContent(topic).catch(() => null);
-              if (wikiNotes) {
-                notesHTML = wikiNotes;
-              } else {
-                notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Service Busy</strong><p>Both AI and Wikipedia tiers are currently unavailable. Please try again in a few minutes.</p></div></div>`;
+            ], {
+              onProgress: (status) => {
+                const title = output.querySelector('#gen-status-title');
+                const progress = output.querySelector('#gen-progress-bar');
+                const percent = output.querySelector('#gen-progress-percent');
+                if (title) title.innerText = status;
+                if (progress) progress.style.width = '45%';
+                if (percent) percent.innerText = '45%';
               }
-            } else {
+            });
+
+            if (aiResult) {
               let sanitized = aiResult.trim();
               sanitized = sanitized.replace(/^```(markdown|html|text)?\n?/i, '').replace(/\n?```$/i, '');
               notesHTML = typeof marked !== 'undefined' ? marked.parse(sanitized) : sanitized;
+            } else {
+              throw new Error("Empty AI result");
             }
           } catch (e) {
-            console.error("[Notes] Fallback sequence error:", e);
-            notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Critical Failure</strong><p>${e.message}</p></div></div>`;
+            console.error("[Notes] Pollinations error:", e);
+            notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Pollinations AI Service Unavailable</strong><p>${e.message}</p></div></div>`;
           }
           if (output.dataset.currentTopic === topic) renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true, null);
         })();
@@ -782,10 +793,15 @@ No LaTeX. Use simple symbols only.`;
             aiRealWorldImgUrls = [...wikiDiagrams.slice(3, 6), ...aiRealWorldImgUrls].slice(0, 4);
           }
 
+          const progress = output.querySelector('#gen-progress-bar');
+          if (progress) progress.style.width = '90%';
           renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
         }).catch(() => {
-          if (output.dataset.currentTopic === topic)
+          if (output.dataset.currentTopic === topic) {
+            const progress = output.querySelector('#gen-progress-bar');
+            if (progress) progress.style.width = '90%';
             renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
+          }
         });
 
         // 3. Independent Mermaid Generation (Guaranteed Fallback)

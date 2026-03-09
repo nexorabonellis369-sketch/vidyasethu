@@ -1,38 +1,21 @@
 /**
  * AI Client Utility for Vidyasethu
- * Primary: Google Gemini API | Fallback: OpenRouter
+ * Primary: Pollinations AI
  */
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const getGeminiUrl = () => {
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!key) console.warn('[AI Client] MISSING VITE_GEMINI_API_KEY in environment.');
-    return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
-};
-
-const getOpenRouterKey = () => {
-    const key = import.meta.env.VITE_OPENROUTER_API_KEY;
-    if (!key) console.warn('[AI Client] MISSING VITE_OPENROUTER_API_KEY in environment.');
+const getPollinationsKey = () => {
+    const key = import.meta.env.VITE_POLLINATIONS_API_KEY;
+    if (!key) console.warn('[AI Client] MISSING VITE_POLLINATIONS_API_KEY in environment.');
     return key || '';
 };
-// Models in priority order — Comprehensive Primary Tier
-const FALLBACK_MODELS = [
-    'google/gemini-2.0-flash-lite-001',
-    'google/gemini-2.0-flash-001',
-    'google/gemini-2.0-pro-exp-02-05:free',
-    'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'qwen/qwen-2.5-72b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
-];
-const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
+
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
 const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
 
 /**
  * Converts Wikipedia Wikitext to rich academic HTML
  */
-function wikitextToAcademicHtml(text) {
+export function wikitextToAcademicHtml(text) {
     if (!text) return "";
 
     // 1. Basic cleaning
@@ -92,153 +75,97 @@ function markdownToHtml(md) {
     return md;
 }
 
+
 /**
- * Calls Google Gemini API directly for primary AI responses.
+ * Calls Pollinations AI free text endpoint.
+ * Highly reliable keyless fallback.
  */
-async function callGemini(messages, options = {}) {
+async function callPollinations(messages, options = {}) {
     const temperature = options.temperature ?? 0.7;
-    // Convert chat messages to Gemini format
-    const systemMsg = messages.find(m => m.role === 'system');
-    const userMsg = messages.find(m => m.role === 'user');
-    const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsg?.content || ''}` : (userMsg?.content || '');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // reduced from 25s to 15s
-
-    const parts = [{ text: fullPrompt }];
-    if (options.image) {
-        parts.push({
-            inline_data: {
-                mime_type: options.imageType || "image/jpeg",
-                data: options.image
-            }
-        });
-    }
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout for complex note generation
 
     try {
-        const response = await fetch(getGeminiUrl(), {
-            method: 'POST',
+        const headers = { 'Content-Type': 'application/json' };
+        const pollKey = getPollinationsKey().trim();
+        if (pollKey) {
+            headers['Authorization'] = `Bearer ${pollKey}`;
+        }
+
+        const response = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
+            method: "POST",
             signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({
-                contents: [{ parts: parts }],
-                generationConfig: {
-                    temperature: temperature,
-                    maxOutputTokens: 4096,
-                }
+                messages: messages,
+                model: "openai",
+                temperature: temperature,
+                jsonMode: false
             })
         });
         clearTimeout(timeoutId);
 
+        if (!response.ok) throw new Error(`Pollinations HTTP ${response.status}`);
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error?.message || `Gemini HTTP ${response.status}`);
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error("Gemini returned empty content");
+        const text = data.choices?.[0]?.message?.content;
+        if (!text) throw new Error("Pollinations returned empty content");
         return text;
     } catch (e) {
         clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+            throw new Error("AI took too long to respond (90s timeout). Try a more specific topic.");
+        }
         throw e;
     }
 }
 
 /**
- * Sends a chat completion request. Tries Gemini first, then OpenRouter fallbacks.
- * Can be forced to use the "Online Search" tier.
+ * Sends a chat completion request using exclusively Pollinations AI.
  */
 export async function generateContent(messages, options = {}) {
-    const temperature = options.temperature ?? 0.7;
+    const routerMessages = [...messages];
+    if (routerMessages.length > 0 && routerMessages[0].role !== "system") {
+        routerMessages.unshift({
+            role: "system",
+            content: "Note: Use proper mathematical unicode symbols (like √, x², ÷) or format equations clearly using simple text (like a/b). Do NOT spell out symbol names like 'frac' or 'sqrt' as plain words. Do NOT use markdown LaTeX formatting (no $ or $$)."
+        });
+    } else if (routerMessages.length > 0 && routerMessages[0].role === "system") {
+        routerMessages[0].content += " Note: Use proper mathematical unicode symbols (like √, x², ÷) or format equations clearly using simple text (like a/b). Do NOT spell out symbol names like 'frac' or 'sqrt' as plain words. Do NOT use markdown LaTeX formatting (no $ or $$).";
+    }
 
-    // 1. Try Gemini first (primary — fast & free)
+    if (options.image) {
+        const lastIdx = routerMessages.length - 1;
+        const lastMsg = routerMessages[lastIdx];
+        if (lastMsg.role === 'user') {
+            routerMessages[lastIdx] = {
+                role: 'user',
+                content: [
+                    { type: "text", text: typeof lastMsg.content === 'string' ? lastMsg.content : "" },
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: `data:${options.imageType || "image/jpeg"};base64,${options.image}`
+                        }
+                    }
+                ]
+            };
+        }
+    }
+
+    if (options.onProgress) options.onProgress("Generating with Pollinations AI...");
+    console.log(`[AI Client] Requesting Pollinations AI...`);
+
     try {
-        if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
-        const result = await callGemini(messages, options);
-        if (result && result.trim().length > 5) { // reduced from 10 to 5
-            return result; // Return RAW markdown
+        const result = await callPollinations(routerMessages, options);
+        if (result && result.trim().length > 0) {
+            return result;
         }
-    } catch (geminiErr) {
-        console.error('[AI Client] Gemini failed:', geminiErr.message);
+        throw new Error("Pollinations returned empty content.");
+    } catch (pollinationsErr) {
+        console.error('[AI Client] Pollinations failed:', pollinationsErr.message);
+        throw pollinationsErr;
     }
-
-    // 1. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
-    // If 'useOnlineSearch' is set, we skip to the online model
-    const baseModels = options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS;
-    const modelsToTry = options.model ? [options.model, ...baseModels] : baseModels;
-    let lastError = null;
-
-    for (const model of modelsToTry) {
-        // Skip models that don't support vision if an image is provided
-        if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude')) {
-            continue;
-        }
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // reduced from 20s to 12s
-        try {
-            if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
-
-            console.log(`[AI Client] Fallback: ${model}...`);
-
-            const routerMessages = [...messages];
-            // OpenRouter/Standard OpenAI schema: system instructions should be in messages with role: "system"
-            // We ensure any extra safety prompt is added to the system message or as a new one
-            routerMessages.unshift({
-                role: "system",
-                content: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
-            });
-
-            if (options.image) {
-                // OpenRouter/GPT-4o style multimodal message
-                const lastIdx = routerMessages.length - 1;
-                const lastMsg = routerMessages[lastIdx];
-                if (lastMsg.role === 'user') {
-                    routerMessages[lastIdx] = {
-                        role: 'user',
-                        content: [
-                            { type: "text", text: lastMsg.content },
-                            {
-                                type: "image_url",
-                                image_url: {
-                                    url: `data:${options.imageType || "image/jpeg"};base64,${options.image}`
-                                }
-                            }
-                        ]
-                    };
-                }
-            }
-
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                method: "POST",
-                signal: controller.signal,
-                headers: {
-                    "Authorization": `Bearer ${getOpenRouterKey().trim()}`,
-                    "HTTP-Referer": "https://vidyasetu-official.pages.dev",
-                    "X-Title": "Vidyasetu Academic Assistant",
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: model,
-                    messages: routerMessages,
-                    temperature: temperature,
-                    max_tokens: options.max_tokens || 2000
-                })
-            });
-            clearTimeout(timeoutId);
-            const data = await response.json();
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    console.error("[AI Client] Auth Error: Missing or Invalid API Key/Header.");
-                }
-                throw new Error(data.error?.message || `HTTP ${response.status}`);
-            }
-            if (!data.choices?.length) throw new Error("Empty response from OpenRouter");
-            return data.choices[0].message.content; // Return RAW markdown
-        } catch (error) {
-            console.warn(`[AI Client] ${model} failed:`, error.message);
-            lastError = error;
-        }
-    }
-
-    throw lastError || new Error("All AI models failed.");
 }
 
 /**
@@ -384,95 +311,6 @@ export async function fetchWikipediaGallery(topic, limit = 2) {
     return [...res.diagrams, ...res.photos].slice(0, limit);
 }
 
-/**
- * Fetches full Wikipedia article content and formats it as structured study notes.
- * Acts as a primary fallback when AI services fail or reach their limit.
- * Optimized to match AI-generated note aesthetic.
- */
-export async function fetchWikipediaContent(topic) {
-    try {
-        // 1. Find best matching page
-        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchData = await fetch(searchUrl).then(r => r.json());
-        if (!searchData.query?.search?.length) return null;
-
-        const pageTitle = searchData.query.search[0].title;
-
-        // 2. Fetch Structured Parse Data (Sections + Wikitext)
-        const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
-        const parseData = await fetch(parseUrl).then(r => r.json());
-
-        if (!parseData.parse?.sections || !parseData.parse?.wikitext) return null;
-
-        const sections = parseData.parse.sections;
-        const fullWikitext = parseData.parse.wikitext['*'];
-
-        // 3. Process and format relevant sections
-        // We look for sections like "Mathematical formulation", "Principles", "Theory", "Derivation"
-        const targetKeywords = ['math', 'formulation', 'theory', 'principle', 'law', 'mechanism', 'derivation', 'electromagnetic'];
-        const relevantSections = sections.filter(s =>
-            targetKeywords.some(k => s.line.toLowerCase().includes(k)) || parseInt(s.level) === 2
-        ).slice(0, 6); // Top 6 most relevant/main sections
-
-        const sectionContents = relevantSections.map(s => {
-            // Find start and end indices for this section in the wikitext
-            // (Note: Wikipedia API doesn't provide easy slicing, so we find the title)
-            const titleMatch = `== ${s.line} ==`;
-            const startIndex = fullWikitext.indexOf(titleMatch);
-            if (startIndex === -1) return null;
-
-            // Find start of NEXT section to calculate end
-            const nextSecIndex = sections.findIndex(sec => sec.index === (parseInt(s.index) + 1).toString());
-            let endIndex = fullWikitext.length;
-            if (nextSecIndex !== -1) {
-                const nextTitleMatch = `== ${sections[nextSecIndex].line} ==`;
-                endIndex = fullWikitext.indexOf(nextTitleMatch);
-                if (endIndex === -1) endIndex = fullWikitext.length;
-            }
-
-            const rawContent = fullWikitext.substring(startIndex + titleMatch.length, endIndex).trim();
-            if (!rawContent || rawContent.length < 50) return null;
-
-            const hasMath = rawContent.includes('<math>');
-            const isDerivation = s.line.toLowerCase().includes('derivation') || s.line.toLowerCase().includes('math');
-
-            return `
-                <div class="note-section" style="margin-bottom: 32px; animation: slideIn 0.5s ease;">
-                    <h3 style="color: var(--accent-cyan); display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 16px;">
-                        <span>${isDerivation ? '📝' : '📘'}</span>
-                        ${s.line}
-                        ${isDerivation ? '<span class="badge badge-cyan" style="margin-left:auto; font-size:0.65rem;">Detailed Derivation</span>' : ''}
-                    </h3>
-                    <div class="academic-text" style="color: var(--text-primary); font-size: 0.95rem;">
-                        ${wikitextToAcademicHtml(rawContent.substring(0, 2500))}
-                    </div>
-                </div>
-            `;
-        }).filter(c => c !== null).join('');
-
-        return `
-            <div class="wiki-fallback-notes">
-                <div class="callout callout-info" style="margin-bottom: 24px; border-left: 4px solid var(--accent-cyan);">
-                    <div class="callout-icon">🏛️</div>
-                    <div style="flex:1;">
-                        <strong style="color: var(--accent-cyan); font-size: 1.1rem;">Encyclopedic Archive: ${pageTitle}</strong>
-                        <p style="font-size: 0.82rem; margin-top: 6px; color: var(--text-secondary); opacity: 0.8;">
-                            Using high-accuracy Wikipedia references. 
-                            <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan); font-weight: bold; text-decoration: underline;">Open Source Library</a>
-                        </p>
-                    </div>
-                </div>
-                ${sectionContents}
-                <div style="margin-top: 32px; padding: 20px; background: rgba(0, 188, 212, 0.05); border: 1px dashed var(--accent-cyan); border-radius: 12px; text-align: center; font-size: 0.88rem; color: var(--text-secondary);">
-                    💡 <strong>Academic Insight:</strong> These notes are derived from verified technical documentation. 
-                    For interactive AI models, attempt a refresh during low-traffic periods.
-                </div>
-            </div>`;
-    } catch (e) {
-        console.warn("Wikipedia Content Fetch failed:", e);
-        return null;
-    }
-}
 
 /**
  * Fetches the primary image/diagram from Wikipedia for a given topic.
