@@ -17,12 +17,13 @@ const getOpenRouterKey = () => {
 };
 // Models in priority order — Comprehensive Primary Tier
 const FALLBACK_MODELS = [
-    'google/gemini-2.0-flash-exp:free',
+    'google/gemini-2.0-flash-lite-001',
+    'google/gemini-2.0-flash-001',
+    'google/gemini-2.0-pro-exp-02-05:free',
     'openai/gpt-4o-mini',
     'meta-llama/llama-3.3-70b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
-    'google/gemma-3-12b-it:free',
     'qwen/qwen-2.5-72b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
 ];
 const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
@@ -178,6 +179,13 @@ export async function generateContent(messages, options = {}) {
             console.log(`[AI Client] Fallback: ${model}...`);
 
             const routerMessages = [...messages];
+            // OpenRouter/Standard OpenAI schema: system instructions should be in messages with role: "system"
+            // We ensure any extra safety prompt is added to the system message or as a new one
+            routerMessages.unshift({
+                role: "system",
+                content: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
+            });
+
             if (options.image) {
                 // OpenRouter/GPT-4o style multimodal message
                 const lastIdx = routerMessages.length - 1;
@@ -211,9 +219,7 @@ export async function generateContent(messages, options = {}) {
                     model: model,
                     messages: routerMessages,
                     temperature: temperature,
-                    max_tokens: options.max_tokens || 2000,
-                    // Safety: Force plain text math in labels if models try to be too smart
-                    system_prompt: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
+                    max_tokens: options.max_tokens || 2000
                 })
             });
             clearTimeout(timeoutId);

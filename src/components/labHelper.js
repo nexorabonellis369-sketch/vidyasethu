@@ -149,10 +149,10 @@ async function generateSmartGuide(output, course, expName) {
 
     throw new Error("AI failed");
   } catch (e) {
-    console.error("Smart guide failed, falling back to Wikipedia:", e.message);
-    updateStatus("AI Busy. Fetching Wikipedia Lab Library...");
-    const wikiData = await fetchWikipediaContent(expName).catch(() => null);
-
+    console.error("Smart guide failed, falling back to Wikipedia:", e);
+    // Stage 3: Wikipedia Fallback
+    updateStatus("AI Services Unavailable. Fetching Wikipedia Lab Library...");
+    const wikiData = await fetchWikipediaContent(expName);
     if (wikiData) {
       output.innerHTML = `
         <div class="notes-content animate-slide">
@@ -167,21 +167,7 @@ async function generateSmartGuide(output, course, expName) {
         </div>
       `;
     } else {
-      output.innerHTML = `
-        <div class="callout callout-error" style="border: 2px solid #ff5252; background: rgba(255, 82, 82, 0.05); padding: 20px;">
-          <div class="callout-icon" style="color: #ff5252;">⚠️</div>
-          <div style="width: 100%;">
-            <strong style="font-size: 1.1rem; color: #ff5252;">Scientific AI Research Failed</strong>
-            <p style="margin: 8px 0;">All premium scientific models and Wikipedia failed. Please use the <b>🔬 PSG Lab Manual</b> button for verified static data.</p>
-            <div style="margin: 15px 0; padding: 15px; background: #fffde7; border: 2px solid #fbc02d; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #000;">
-              <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px;">🛠️ SYSTEM DIAGNOSTICS:</div>
-              <div style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; border-left: 4px solid #d32f2f;">
-                ${e.message}
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
+      output.innerHTML = `<div class="callout callout-error">Unable to generate smart guide. Please use the PSG Lab Manual button for offline data.</div>`;
     }
   }
 }
