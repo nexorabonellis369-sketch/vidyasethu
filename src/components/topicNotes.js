@@ -708,10 +708,10 @@ Use professional PSG Tech level technical language. Format using standard Markdo
         // Fetch text notes in background using multi-stage fallback
         (async () => {
           try {
-            // Stage 1: Primary AI Tier (Gemini, Llama, GPT)
+            // Stage 1: Primary AI Tier (Gemini + OpenRouter)
             if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Consulting Primary AI Wave...");
 
-            // Fetch Wikipedia grounding context
+            // Fetch Wikipedia grounding context (Used for both AI and as part of final fallback)
             const wikiContext = await fetchWikipediaWikitext(topic);
             const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
 ${wikiContext ? `GROUNDING REFERENCE (Use these formulas and derivations): \n${wikiContext}\n` : ''}
@@ -722,23 +722,14 @@ No LaTeX. Use simple symbols only.`;
               { role: "user", content: prompt }
             ]).catch(() => null);
 
-            // Stage 2: Google Online Search Tier
-            if (!aiResult) {
-              if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Standard AI at capacity. Searching Google AI...");
-              aiResult = await generateContent([
-                { role: "system", content: "You are a research assistant with live web access. Provide comprehensive notes. No LaTeX." },
-                { role: "user", content: prompt }
-              ], { useOnlineSearch: true }).catch(() => null);
-            }
-
-            // Stage 3: Wikipedia Tier (Final Safety Net)
+            // Stage 2: Wikipedia Tier (Final Safety Net)
             if (!aiResult) {
               if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "AI Services Busy. Fetching Wikipedia library...");
               const wikiNotes = await fetchWikipediaContent(topic).catch(() => null);
               if (wikiNotes) {
                 notesHTML = wikiNotes;
               } else {
-                notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Service Busy</strong><p>All generation tiers (AI, Google, Wiki) are currently unavailable. Please try again in a few minutes.</p></div></div>`;
+                notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Service Busy</strong><p>Both AI and Wikipedia tiers are currently unavailable. Please try again in a few minutes.</p></div></div>`;
               }
             } else {
               let sanitized = aiResult.trim();
