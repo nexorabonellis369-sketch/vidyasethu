@@ -4,15 +4,10 @@
  */
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const getGeminiUrl = (modelOverride) => {
+const getGeminiUrl = () => {
     const key = import.meta.env.VITE_GEMINI_API_KEY;
-    const model = modelOverride || GEMINI_MODEL;
     if (!key) console.warn('[AI Client] MISSING VITE_GEMINI_API_KEY in environment.');
-    // Use local proxy in dev to avoid CORS issues
-    const baseUrl = import.meta.env.DEV
-        ? '/google-ai/v1/models'
-        : 'https://generativelanguage.googleapis.com/v1/models';
-    return `${baseUrl}/${model}:generateContent?key=${key}`;
+    return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
 };
 
 const getOpenRouterKey = () => {
@@ -22,13 +17,58 @@ const getOpenRouterKey = () => {
 };
 // Models in priority order — Comprehensive Primary Tier
 const FALLBACK_MODELS = [
-    'openai/gpt-4o',
-    'openai/gpt-4o-mini',
     'google/gemini-2.0-flash-exp:free',
-    'google/gemini-pro'
+    'openai/gpt-4o-mini',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
+    'google/gemma-3-12b-it:free',
+    'qwen/qwen-2.5-72b-instruct:free',
 ];
+const ONLINE_SEARCH_MODEL = 'google/gemini-2.0-flash-exp:online';
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
 const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
+
+/**
+ * Converts Wikipedia Wikitext to rich academic HTML
+ */
+function wikitextToAcademicHtml(text) {
+    if (!text) return "";
+
+    // 1. Basic cleaning
+    let html = text
+        .replace(/&nbsp;/g, ' ')
+        .replace(/'''([^']+)'''/g, '<strong>$1</strong>')
+        .replace(/''([^']+)''/g, '<em>$1</em>')
+        .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1') // [[Link|Text]] -> Text
+        .replace(/\{\{[^}]+\}\}/g, ''); // {{Templates}}
+
+    // 2. Extract Formula/Math tags and format as Derivation Steps
+    html = html.replace(/<math[^>]*>(.*?)<\/math>/g, (match, formula) => {
+        // Simple LaTeX cleanup for readability without a full renderer
+        const cleanFormula = formula
+            .replace(/\\(?:text|quad|cdot|mathcal|vec|begin|end|left|right|frac|sqrt|partial)/g, ' ')
+            .replace(/[{}]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return `<div class="formula-block" style="background: rgba(0, 188, 212, 0.05); padding: 12px 16px; border-radius: 12px; margin: 12px 0; border: 1px dashed var(--accent-cyan); font-family: 'Outfit', sans-serif; color: var(--accent-cyan); font-weight: 500; font-size: 1.1rem; text-align: center;">
+            ${cleanFormula}
+        </div>`;
+    });
+
+    // 3. Handle list items
+    html = html.split('\n').map(line => {
+        if (line.trim().startsWith('*')) {
+            return `<li style="margin-left: 20px; margin-bottom: 8px;">${line.trim().substring(1).trim()}</li>`;
+        }
+        if (line.trim().length > 0) {
+            return `<p style="margin-bottom: 12px; line-height: 1.7;">${line.trim()}</p>`;
+        }
+        return "";
+    }).join('\n');
+
+    return html;
+}
 
 /**
  * Strips Wikipedia markup for cleaner AI context
@@ -36,46 +76,11 @@ const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
 function cleanWikitext(text) {
     if (!text) return "";
     return text
-        .replace(/<math[^>]*>(.*?)<\/math>/g, ' $1 ') // Extract raw math content
-        .replace(/<sub>(.*?)<\/sub>/g, '_$1') // Convert HTML sub to simple underscore
-        .replace(/<sup>(.*?)<\/sup>/g, '^$1') // Convert HTML sup to simple caret
         .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1') // [[Link|Text]] -> Text
         .replace(/\{\{[^}]+\}\}/g, '') // {{Templates}}
         .replace(/&nbsp;/g, ' ')
         .replace(/'''/g, '')
-        .replace(/''/g, '')
-        .replace(/\n+/g, ' '); // Enforce horizontal block flow
-}
-
-/**
- * Helper for safe JSON fetching with HTML fallback protection.
- */
-async function safeFetchJson(url, options = {}) {
-    const response = await fetch(url, options);
-    const contentType = response.headers.get("content-type");
-
-    if (contentType && contentType.includes("text/html")) {
-        const text = await response.text();
-        if (text.trim().toLowerCase().startsWith("<!doctype html") || text.includes("<html")) {
-            throw new Error(`Proxy/Server returned HTML instead of JSON (Status: ${response.status}). URL: ${url}`);
-        }
-    }
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch (e) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        throw new Error(`HTTP ${response.status}: ${errorData.error?.message || errorData.message || response.statusText}`);
-    }
-
-    try {
-        return await response.json();
-    } catch (e) {
-        throw new Error(`Failed to parse JSON response from ${url}`);
-    }
+        .replace(/''/g, '');
 }
 
 /**
@@ -97,7 +102,7 @@ async function callGemini(messages, options = {}) {
     const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsg?.content || ''}` : (userMsg?.content || '');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased from 15s to 30s
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // reduced from 25s to 15s
 
     const parts = [{ text: fullPrompt }];
     if (options.image) {
@@ -110,60 +115,22 @@ async function callGemini(messages, options = {}) {
     }
 
     try {
-        const bodyPayload = {
-            contents: [],
-            generationConfig: {
-                temperature: temperature,
-                maxOutputTokens: 4096,
-            }
-        };
-
-        // 1. Set System Instruction explicitly
-        if (systemMsg) {
-            bodyPayload.system_instruction = { parts: [{ text: systemMsg.content }] };
-        }
-
-        // 2. Add User Content Part
-        const userParts = [];
-        if (userMsg?.content) {
-            userParts.push({ text: userMsg.content });
-        }
-
-        if (options.image) {
-            userParts.push({
-                inline_data: {
-                    mime_type: options.imageType || "image/jpeg",
-                    data: options.image
-                }
-            });
-        }
-
-        if (userParts.length === 0) {
-            // Fallback to fullPrompt if somehow userMsg is missing but fullPrompt exists
-            userParts.push({ text: fullPrompt });
-        }
-
-        bodyPayload.contents.push({ role: 'user', parts: userParts });
-
-        // Add safety settings to reduce blockage risk
-        bodyPayload.safetySettings = [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ];
-
-        if (options.useGoogleSearch) {
-            bodyPayload.tools = [{ google_search: {} }];
-        }
-
-        const data = await safeFetchJson(getGeminiUrl(options.modelOverride), {
+        const response = await fetch(getGeminiUrl(), {
             method: 'POST',
             signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(bodyPayload)
+            body: JSON.stringify({
+                contents: [{ parts: parts }],
+                generationConfig: {
+                    temperature: temperature,
+                    maxOutputTokens: 4096,
+                }
+            })
         });
         clearTimeout(timeoutId);
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || `Gemini HTTP ${response.status}`);
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) throw new Error("Gemini returned empty content");
         return text;
@@ -180,53 +147,39 @@ async function callGemini(messages, options = {}) {
 export async function generateContent(messages, options = {}) {
     const temperature = options.temperature ?? 0.7;
 
-    // 0. Handle Native Google Search explicit request
-    if (options.useGoogleSearch) {
-        if (options.onProgress) options.onProgress("Searching Google AI...");
-        try {
-            const result = await callGemini(messages, options);
-            if (result && result.trim().length > 5) return result;
-        } catch (e) {
-            console.error('[AI Client] Google Search Fallback failed:', e.message);
-        }
-        return null; // Don't fall back to standard models if search was explicitly requested
-    }
-
-    // 2. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
-    let lastError = null;
-
     // 1. Try Gemini first (primary — fast & free)
     try {
         if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
         const result = await callGemini(messages, options);
-        if (result && result.trim().length > 5) {
-            return result;
+        if (result && result.trim().length > 5) { // reduced from 10 to 5
+            return result; // Return RAW markdown
         }
     } catch (geminiErr) {
         console.error('[AI Client] Gemini failed:', geminiErr.message);
-        lastError = new Error(`Gemini: ${geminiErr.message}`);
     }
 
-    const modelsToTry = options.model ? [options.model, ...FALLBACK_MODELS] : FALLBACK_MODELS;
+    // 1. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
+    // If 'useOnlineSearch' is set, we skip to the online model
+    const baseModels = options.useOnlineSearch ? [ONLINE_SEARCH_MODEL] : FALLBACK_MODELS;
+    const modelsToTry = options.model ? [options.model, ...baseModels] : baseModels;
+    let lastError = null;
 
     for (const model of modelsToTry) {
         // Skip models that don't support vision if an image is provided
-        if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude') && !model.includes('pixtral')) {
+        if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude')) {
             continue;
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 35000);
-
-        const endpoint = import.meta.env.DEV
-            ? "/openrouter-ai/chat/completions"
-            : "https://openrouter.ai/api/v1/chat/completions";
-
+        const timeoutId = setTimeout(() => controller.abort(), 12000); // reduced from 20s to 12s
         try {
             if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
 
+            console.log(`[AI Client] Fallback: ${model}...`);
+
             const routerMessages = [...messages];
             if (options.image) {
+                // OpenRouter/GPT-4o style multimodal message
                 const lastIdx = routerMessages.length - 1;
                 const lastMsg = routerMessages[lastIdx];
                 if (lastMsg.role === 'user') {
@@ -245,7 +198,7 @@ export async function generateContent(messages, options = {}) {
                 }
             }
 
-            const data = await safeFetchJson(endpoint, {
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 signal: controller.signal,
                 headers: {
@@ -258,21 +211,28 @@ export async function generateContent(messages, options = {}) {
                     model: model,
                     messages: routerMessages,
                     temperature: temperature,
-                    max_tokens: options.max_tokens || 3500,
-                    system_prompt: "Output clean Markdown only. No HTML. No LaTeX. No code block wrappers."
+                    max_tokens: options.max_tokens || 2000,
+                    // Safety: Force plain text math in labels if models try to be too smart
+                    system_prompt: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
                 })
             });
             clearTimeout(timeoutId);
-
+            const data = await response.json();
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    console.error("[AI Client] Auth Error: Missing or Invalid API Key/Header.");
+                }
+                throw new Error(data.error?.message || `HTTP ${response.status}`);
+            }
             if (!data.choices?.length) throw new Error("Empty response from OpenRouter");
-            return data.choices[0].message.content;
+            return data.choices[0].message.content; // Return RAW markdown
         } catch (error) {
-            console.error(`[AI Client] OpenRouter ${model} failed:`, error.message);
-            lastError = new Error(`${model}: ${error.message}`);
+            console.warn(`[AI Client] ${model} failed:`, error.message);
+            lastError = error;
         }
     }
 
-    throw lastError || new Error("All AI models failed. Please check your API keys or internet connection.");
+    throw lastError || new Error("All AI models failed.");
 }
 
 /**
@@ -280,20 +240,13 @@ export async function generateContent(messages, options = {}) {
  */
 export async function fetchWikipediaWikitext(topic) {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchData = await safeFetchJson(searchUrl, { signal: controller.signal });
-        if (!searchData.query?.search?.length) {
-            clearTimeout(timeoutId);
-            return "";
-        }
+        const searchData = await fetch(searchUrl).then(r => r.json());
+        if (!searchData.query?.search?.length) return "";
 
         const pageTitle = searchData.query.search[0].title;
         const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
-        const parseData = await safeFetchJson(parseUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const parseData = await fetch(parseUrl).then(r => r.json());
 
         if (!parseData.parse?.sections || !parseData.parse?.wikitext) return "";
 
@@ -373,15 +326,16 @@ export async function generateImage(prompt) {
 export async function fetchWikipediaResources(topic, limit = 10) {
     try {
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchRes = await safeFetchJson(searchUrl);
-        const searchData = searchRes;
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
         if (!searchData.query?.search?.length) return { diagrams: [], photos: [] };
 
         const pageTitle = searchData.query.search[0].title;
 
         // Fetch all image URLs in ONE call using generator
         const imagesUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&generator=images&gimlimit=${limit * 2}&prop=imageinfo&iiprop=url&format=json&origin=*`;
-        const imagesData = await safeFetchJson(imagesUrl);
+        const imagesRes = await fetch(imagesUrl);
+        const imagesData = await imagesRes.json();
 
         if (!imagesData.query?.pages) return { diagrams: [], photos: [] };
 
@@ -427,106 +381,85 @@ export async function fetchWikipediaGallery(topic, limit = 2) {
 /**
  * Fetches full Wikipedia article content and formats it as structured study notes.
  * Acts as a primary fallback when AI services fail or reach their limit.
+ * Optimized to match AI-generated note aesthetic.
  */
-export async function fetchWikipediaContent(topic, unitTitle = "") {
+export async function fetchWikipediaContent(topic) {
     try {
         // 1. Find best matching page
-        let searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        let searchRes = await safeFetchJson(searchUrl);
-        let searchData = searchRes;
-
-        // 1b. Fallback broad search if specific topic fails
-        if (!searchData.query?.search?.length && topic.includes(':')) {
-            const broaderTopic = topic.split(':')[1].trim();
-            searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(broaderTopic)}&format=json&origin=*`;
-            searchData = await safeFetchJson(searchUrl);
-        }
-
-        // 1c. Deep Fallback: Search Unit Title if topics fail
-        if (!searchData.query?.search?.length && unitTitle) {
-            searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(unitTitle)}&format=json&origin=*`;
-            searchData = await safeFetchJson(searchUrl);
-        }
-
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
+        const searchData = await fetch(searchUrl).then(r => r.json());
         if (!searchData.query?.search?.length) return null;
+
         const pageTitle = searchData.query.search[0].title;
 
-        // 2. Fetch full extract + sections (not just intro)
-        const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=extracts&exsectionformat=wiki&explaintext&format=json&origin=*`;
-        const extractData = await safeFetchJson(extractUrl);
+        // 2. Fetch Structured Parse Data (Sections + Wikitext)
+        const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
+        const parseData = await fetch(parseUrl).then(r => r.json());
 
-        const pages = extractData.query?.pages;
-        if (!pages) return null;
-        const pageId = Object.keys(pages)[0];
-        if (pageId === "-1" || !pages[pageId]) return null;
+        if (!parseData.parse?.sections || !parseData.parse?.wikitext) return null;
 
-        const rawText = pages[pageId].extract;
-        if (!rawText) return null;
+        const sections = parseData.parse.sections;
+        const fullWikitext = parseData.parse.wikitext['*'];
 
-        // 3. Pre-process text to remove vertical LaTeX and merge floating math lines
-        let cleanedText = rawText
-            // Extract inner text of displaystyle, keep it inline
-            .replace(/\{\s*\\displaystyle(.*?)\s*\}/g, ' $1 ')
-            // Remove common remaining latex commands
-            .replace(/\\[a-zA-Z]+/g, '')
-            // Aggressively merge short lines that start/end with math characters or commas
-            .replace(/\n\s*([A-Za-z0-9,\s~=+\-*/^_{}()\.]+[,\+\-=]?)\s*\n/gi, ' $1 ')
-            .replace(/\n\s*([,\+\-=~^])/g, ' $1') // If line starts with a punctuation, bring it up
-            .replace(/\n+/g, '\n'); // remove excessive blank lines
+        // 3. Process and format relevant sections
+        // We look for sections like "Mathematical formulation", "Principles", "Theory", "Derivation"
+        const targetKeywords = ['math', 'formulation', 'theory', 'principle', 'law', 'mechanism', 'derivation', 'electromagnetic'];
+        const relevantSections = sections.filter(s =>
+            targetKeywords.some(k => s.line.toLowerCase().includes(k)) || parseInt(s.level) === 2
+        ).slice(0, 6); // Top 6 most relevant/main sections
 
-        // Parse sections from the cleaned text
-        const lines = cleanedText.split('\n');
-        const sections = [];
-        let currentSection = { title: 'Overview', content: [] };
+        const sectionContents = relevantSections.map(s => {
+            // Find start and end indices for this section in the wikitext
+            // (Note: Wikipedia API doesn't provide easy slicing, so we find the title)
+            const titleMatch = `== ${s.line} ==`;
+            const startIndex = fullWikitext.indexOf(titleMatch);
+            if (startIndex === -1) return null;
 
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            // Wikipedia section headers appear as == Title ==
-            if (trimmed.startsWith('==') && trimmed.endsWith('==')) {
-                if (currentSection.content.length > 0) sections.push(currentSection);
-                currentSection = { title: trimmed.replace(/=/g, '').trim(), content: [] };
-            } else {
-                currentSection.content.push(trimmed);
+            // Find start of NEXT section to calculate end
+            const nextSecIndex = sections.findIndex(sec => sec.index === (parseInt(s.index) + 1).toString());
+            let endIndex = fullWikitext.length;
+            if (nextSecIndex !== -1) {
+                const nextTitleMatch = `== ${sections[nextSecIndex].line} ==`;
+                endIndex = fullWikitext.indexOf(nextTitleMatch);
+                if (endIndex === -1) endIndex = fullWikitext.length;
             }
-        }
-        if (currentSection.content.length > 0) sections.push(currentSection);
 
-        // 4. Format as rich study notes HTML (limit to first 5 sections to avoid overflow)
-        const importantSections = sections.slice(0, 5);
-        const sectionsHTML = importantSections.map(section => {
-            const paragraphs = section.content.slice(0, 6).map(p => {
-                // Style inline math elements to flow horizontally and wrap predictably
-                let styledP = p.replace(/<math[^>]*>(.*?)<\/math>/g, '<span style="white-space: nowrap; font-family: monospace; background: var(--bg-secondary); padding: 2px 4px; border-radius: 4px;"> $1 </span>');
-                styledP = styledP.replace(/_{([^}]+)}/g, '<sub>$1</sub>').replace(/\^{([^}]+)}/g, '<sup>$1</sup>');
-                return `<p style="margin-bottom:12px; line-height:1.8; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">${styledP}</p>`;
-            }).join('');
+            const rawContent = fullWikitext.substring(startIndex + titleMatch.length, endIndex).trim();
+            if (!rawContent || rawContent.length < 50) return null;
+
+            const hasMath = rawContent.includes('<math>');
+            const isDerivation = s.line.toLowerCase().includes('derivation') || s.line.toLowerCase().includes('math');
 
             return `
-                <div style="margin-bottom: 28px; padding: 20px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-                    <h3 style="color: var(--accent-cyan); display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-family: 'Inter', sans-serif;">
-                        <span style="font-size: 1.2rem;">📖</span> ${section.title}
+                <div class="note-section" style="margin-bottom: 32px; animation: slideIn 0.5s ease;">
+                    <h3 style="color: var(--accent-cyan); display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 16px;">
+                        <span>${isDerivation ? '📝' : '📘'}</span>
+                        ${s.line}
+                        ${isDerivation ? '<span class="badge badge-cyan" style="margin-left:auto; font-size:0.65rem;">Detailed Derivation</span>' : ''}
                     </h3>
-                    <div style="font-size: 0.92rem; color: var(--text-secondary); line-height: 1.7;">
-                        ${paragraphs}
+                    <div class="academic-text" style="color: var(--text-primary); font-size: 0.95rem;">
+                        ${wikitextToAcademicHtml(rawContent.substring(0, 2500))}
                     </div>
-                </div>`;
-        }).join('');
+                </div>
+            `;
+        }).filter(c => c !== null).join('');
 
         return `
             <div class="wiki-fallback-notes">
-                <div class="callout callout-info" style="margin-bottom: 20px;">
-                    <div class="callout-icon">📚</div>
-                    <div>
-                        <strong>Synthesizing from Wikipedia — ${pageTitle}</strong>
-                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently at peak capacity. Providing verified academic research from the Wikipedia database. Full article: <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan);">Wikipedia: ${pageTitle}</a></p>
-                        <!-- DIAGNOSTICS -->
-                    </div>
+                <div class="callout callout-info" style="margin-bottom: 24px; border-left: 4px solid var(--accent-cyan);">
+                    <div class="callout-icon">🏛️</div>
+                    <div style="flex:1;">
+                        <strong style="color: var(--accent-cyan); font-size: 1.1rem;">Encyclopedic Archive: ${pageTitle}</strong>
+                        <p style="font-size: 0.82rem; margin-top: 6px; color: var(--text-secondary); opacity: 0.8;">
+                            Using high-accuracy Wikipedia references. 
+                            <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan); font-weight: bold; text-decoration: underline;">Open Source Library</a>
+                        </p>
                     </div>
                 </div>
-                ${sectionsHTML}
-                <div style="margin-top: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; color: var(--text-tertiary);">
-                    💡 <strong>Tip:</strong> For AI-powered notes with diagrams and real-world examples, try again when the service is less busy.
+                ${sectionContents}
+                <div style="margin-top: 32px; padding: 20px; background: rgba(0, 188, 212, 0.05); border: 1px dashed var(--accent-cyan); border-radius: 12px; text-align: center; font-size: 0.88rem; color: var(--text-secondary);">
+                    💡 <strong>Academic Insight:</strong> These notes are derived from verified technical documentation. 
+                    For interactive AI models, attempt a refresh during low-traffic periods.
                 </div>
             </div>`;
     } catch (e) {
@@ -542,8 +475,8 @@ export async function fetchWikipediaImage(topic) {
     try {
         // 1. Search for the most relevant Wikipedia page
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchRes = await safeFetchJson(searchUrl);
-        const searchData = searchRes;
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
 
         if (!searchData.query.search.length) return null;
 
@@ -551,8 +484,8 @@ export async function fetchWikipediaImage(topic) {
 
         // 2. Fetch page details including images
         const detailsUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=pageimages|images&format=json&pithumbsize=1000&origin=*`;
-        const detailsRes = await safeFetchJson(detailsUrl);
-        const detailsData = detailsRes;
+        const detailsRes = await fetch(detailsUrl);
+        const detailsData = await detailsRes.json();
 
         const pages = detailsData.query.pages;
         const pageId = Object.keys(pages)[0];

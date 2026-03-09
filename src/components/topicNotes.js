@@ -12,7 +12,6 @@ import {
   fetchWikipediaGallery,
   fetchWikipediaWikitext
 } from '../utils/aiClient.js';
-import { safeParseMarkdown, sanitizeAIResponse } from '../utils/formatter.js';
 
 // Previous Mermaid and AI functions removed to simplify the application.
 // This component now provides structural study frameworks for PSG Tech courses.
@@ -673,34 +672,11 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
   }
 
   // 1. START GENERATION PROCESS
-  // Local state to prevent race conditions during multi-stage rendering
-  let currentState = {
-    notes: skeletonNotes,
-    diagrams: [],
-    graphs: [],
-    realWorld: [],
-    isLoading: true,
-    status: "Initializing Research Wave..."
-  };
-
-  const updateUI = (updates) => {
-    currentState = { ...currentState, ...updates };
-    if (output.dataset.currentTopic === topic) {
-      renderFullUI(
-        currentState.notes,
-        currentState.diagrams,
-        currentState.graphs,
-        currentState.realWorld,
-        currentState.isLoading,
-        currentState.status
-      );
-    }
-  };
-
-  if (useAI) {
-    const isAdvanced = level === 'advanced_level';
-    const prompt = isAdvanced
-      ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
+  (async () => {
+    if (useAI) {
+      const isAdvanced = level === 'advanced_level';
+      const prompt = isAdvanced
+        ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
 Include:
 - Precise technical definition with mathematical rigour
 - Full derivation from first principles, with each step explained
@@ -717,8 +693,8 @@ Provide exactly **5 solved numerical/conceptual problems** in increasing difficu
 
 - Common university exam questions (2m, 6m, 10m formats)
 - Special cases, boundary conditions, and assumptions
-- Use simple math symbols only (e.g., √, ^, /). NO LaTeX. NO HTML. NO Code Blocks. Output RAW Markdown only.`
-      : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
+Use simple math symbols only (e.g., √ for square root, ^ for power, / for fraction). Do NOT use LaTeX. Format in standard Markdown.`
+        : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
 Include:
 - Detailed definition and conceptual overview
 - **Industrial and Real-World Applications** (Provide 3-4 specific examples of where this is used in modern technology or engineering)
@@ -726,141 +702,121 @@ Include:
 - Core working principles or scientific theories
 - 2-3 step-by-step solved derivation points or logical proofs
 - Common exam questions (2m, 6m, 10m formats)
-Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). NO HTML. NO Code Blocks. Output RAW Markdown only.`;
+Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
 
-    const diagLogs = [];
-    let aiResult = null;
+      try {
+        // Fetch text notes in background using multi-stage fallback
+        (async () => {
+          try {
+            // Stage 1: Primary AI Tier (Gemini, Llama, GPT)
+            if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Consulting Primary AI Wave...");
 
-    try { // Outer try for overall logic
-      try { // Inner try for AI stages
-        // Stage 1: Primary AI Tier
-        updateUI({ status: "Consulting Primary AI Wave..." });
-        const wikiContext = await fetchWikipediaWikitext(topic).catch(() => "");
+            // Fetch Wikipedia grounding context
+            const wikiContext = await fetchWikipediaWikitext(topic);
+            const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
+${wikiContext ? `GROUNDING REFERENCE (Use these formulas and derivations): \n${wikiContext}\n` : ''}
+No LaTeX. Use simple symbols only.`;
 
-        const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes. 
-${wikiContext ? `GROUNDING REFERENCE: \n${wikiContext}\n` : ''}
-IMPORTANT FORMATTING: 
-1. Write all math equations and formulas horizontally on a single line. 
-2. Use ONLY simple symbols (√, ^, /, *). 
-3. NO LaTeX. 
-4. Output RAW Markdown only. 
-5. DO NOT wrap with code blocks. 
-6. DO NOT use HTML tags.`;
+            let aiResult = await generateContent([
+              { role: "system", content: groundedSystemPrompt },
+              { role: "user", content: prompt }
+            ]).catch(() => null);
 
-        aiResult = await generateContent([
-          { role: "system", content: groundedSystemPrompt },
-          { role: "user", content: prompt }
-        ]).catch(e => {
-          diagLogs.push(`[Gemini/OR] ${e.message}`);
-          return null;
+            // Stage 2: Google Online Search Tier
+            if (!aiResult) {
+              if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Standard AI at capacity. Searching Google AI...");
+              aiResult = await generateContent([
+                { role: "system", content: "You are a research assistant with live web access. Provide comprehensive notes. No LaTeX." },
+                { role: "user", content: prompt }
+              ], { useOnlineSearch: true }).catch(() => null);
+            }
+
+            // Stage 3: Wikipedia Tier (Final Safety Net)
+            if (!aiResult) {
+              if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "AI Services Busy. Fetching Wikipedia library...");
+              const wikiNotes = await fetchWikipediaContent(topic).catch(() => null);
+              if (wikiNotes) {
+                notesHTML = wikiNotes;
+              } else {
+                notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Service Busy</strong><p>All generation tiers (AI, Google, Wiki) are currently unavailable. Please try again in a few minutes.</p></div></div>`;
+              }
+            } else {
+              let sanitized = aiResult.trim();
+              sanitized = sanitized.replace(/^```(markdown|html|text)?\n?/i, '').replace(/\n?```$/i, '');
+              notesHTML = typeof marked !== 'undefined' ? marked.parse(sanitized) : sanitized;
+            }
+          } catch (e) {
+            console.error("[Notes] Fallback sequence error:", e);
+            notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Critical Failure</strong><p>${e.message}</p></div></div>`;
+          }
+          if (output.dataset.currentTopic === topic) renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true, null);
+        })();
+
+        // === VISUAL GENERATION: Multi-Source Pipeline (Pollinations AI + Wikipedia) ===
+        const generatePollinationsUrl = (prompt) => {
+          const seed = Math.floor(Math.random() * 999999);
+          return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}&width=800&height=600&nologo=true&seed=${seed}`;
+        };
+
+        // 1. Initial Quick Load with Diversified Pollinations AI prompts
+        aiScientificGraphs = [
+          generatePollinationsUrl(`Detailed scientific mathematical graph of ${topic}, labeled X and Y axes, precise curve, academic textbook style, white background`),
+          generatePollinationsUrl(`Annotated technical schematic for ${topic}, industrial engineering drawing, high contrast, clean blueprint style`),
+          generatePollinationsUrl(`3D mathematical model visualization of ${topic}, scientific representation, professional diagram`)
+        ];
+
+        aiRealWorldImgUrls = [
+          generatePollinationsUrl(`Industrial application of ${topic} in modern engineering, factory machinery, technical context, high resolution`),
+          generatePollinationsUrl(`${topic} being implemented in a laboratory setting, scientific research equipment, realistic photo`),
+          generatePollinationsUrl(`Real-world engineering infrastructure related to ${topic}, high detail technical photography`)
+        ];
+
+        if (output.dataset.currentTopic === topic)
+          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true);
+
+        // 2. Enhance with Wikipedia/Commons (High Reliability)
+        fetchWikipediaResources(topic, 10).then(wikiRes => {
+          if (output.dataset.currentTopic !== topic) return;
+          const wikiDiagrams = wikiRes.diagrams || [];
+          const wikiPhotos = wikiRes.photos || [];
+
+          // Merge Wikipedia resources into the arrays (prioritize real images)
+          if (wikiDiagrams.length > 0) {
+            aiScientificGraphs = [...wikiDiagrams.slice(0, 3), ...aiScientificGraphs].slice(0, 4);
+          }
+          if (wikiPhotos.length > 0) {
+            aiRealWorldImgUrls = [...wikiPhotos.slice(0, 3), ...aiRealWorldImgUrls].slice(0, 4);
+          } else if (wikiDiagrams.length > 3) {
+            // Use extra diagrams as industrial illustrations if no photos available
+            aiRealWorldImgUrls = [...wikiDiagrams.slice(3, 6), ...aiRealWorldImgUrls].slice(0, 4);
+          }
+
+          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
+        }).catch(() => {
+          if (output.dataset.currentTopic === topic)
+            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
         });
 
-        // Stage 2: Google Online Search
-        if (!aiResult) {
-          updateUI({ status: "Standard AI at capacity. Searching Google AI..." });
-          aiResult = await generateContent([
-            { role: "system", content: "You are a research assistant with live web access. Provide comprehensive notes. IMPORTANT FORMATTING: Write all math horizontally on one line. No LaTeX. No HTML. No code blocks. Output clean Markdown only." },
-            { role: "user", content: prompt }
-          ], { useGoogleSearch: true, modelOverride: 'gemini-1.5-flash' }).catch(e => {
-            diagLogs.push(`[GoogleSearch] ${e.message}`);
-            return null;
-          });
-        }
-      } catch (e) {
-        diagLogs.push(`[Flow] ${e.message}`);
-      }
-
-      // Stage 3: Wikipedia Library Fail-safe
-      if (!aiResult) {
-        updateUI({ status: "AI Services Busy. Fetching Wikipedia library..." });
-        const { fetchWikipediaContent } = await import('../utils/aiClient.js');
-        const wikiNotes = await fetchWikipediaContent(topic, unit.title).catch(() => null);
-
-        if (wikiNotes) {
-          const logsHtml = diagLogs.length > 0
-            ? `<div style="margin: 15px 0; padding: 15px; background: #fffde7; border: 2px solid #fbc02d; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
-                    <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px; font-size: 1rem;">⚠️ TECHNICAL DIAGNOSTIC LOGS</div>
-                    <div style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; border-left: 4px solid #d32f2f;">
-                      ${diagLogs.join('<br>')}
-                    </div>
-                    <div style="margin-top: 10px; font-size: 0.75rem; color: #555; font-style: italic;">
-                      The AI tiers were unavailable. These notes are sourced from verified Wikipedia records.
-                    </div>
-                </div>`
-            : '';
-          notesHTML = wikiNotes.replace('<!-- DIAGNOSTICS -->', logsHtml) || wikiNotes + logsHtml;
-        } else {
-          // Absolute Final Error UI
-          notesHTML = `
-              <div class="callout callout-error" style="border: 2px solid #ff5252; background: rgba(255, 82, 82, 0.05); padding: 20px;">
-                <div class="callout-icon" style="color: #ff5252;">⚠️</div>
-                <div style="width: 100%;">
-                  <strong style="font-size: 1.1rem; color: #ff5252;">Research Interrupted</strong>
-                  <p style="margin: 8px 0;">All premium AI tiers and Wikipedia fallback failed to generate content.</p>
-                  <div style="margin: 15px 0; padding: 15px; background: #fffde7; border: 2px solid #fbc02d; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; color: #000;">
-                    <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px;">🛠️ TECHNICAL DIAGNOSTICS</div>
-                    <div style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; border-left: 4px solid #d32f2f;">
-                      ${diagLogs.join('<br>')}
-                    </div>
-                  </div>
-                  <button onclick="window.location.reload()" class="btn" style="background:#ff5252; color:white; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight: 600;">🔄 Refresh & Retry</button>
-                </div>
-              </div>`;
-        }
-      } else {
-        const sanitized = sanitizeAIResponse(aiResult);
-        notesHTML = safeParseMarkdown(sanitized);
-      }
-
-      // Apply final text result to state
-      updateUI({ notes: notesHTML, status: "Enhancing with visual research..." });
-
-      // === VISUAL GENERATION (Sequential to avoid race conditions) ===
-      const generatePollinationsUrl = (p) => {
-        const seed = Math.floor(Math.random() * 999999);
-        return `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}&width=800&height=600&nologo=true&seed=${seed}`;
-      };
-
-      const initialGraphs = [
-        generatePollinationsUrl(`Detailed scientific mathematical graph of ${topic}, labeled X and Y axes, precise curve, academic textbook style, white background`),
-        generatePollinationsUrl(`Annotated technical schematic for ${topic}, industrial engineering drawing, high contrast, clean blueprint style`)
-      ];
-      const initialPhotos = [
-        generatePollinationsUrl(`Industrial application of ${topic} in modern engineering, technical context, high resolution`)
-      ];
-
-      updateUI({ graphs: initialGraphs, realWorld: initialPhotos });
-
-      // Wiki Resource Enhancement
-      const wikiRes = await fetchWikipediaResources(topic, 10).catch(() => ({ diagrams: [], photos: [] }));
-      if (wikiRes.diagrams?.length || wikiRes.photos?.length) {
-        updateUI({
-          graphs: [...(wikiRes.diagrams || []).slice(0, 3), ...initialGraphs].slice(0, 4),
-          realWorld: [...(wikiRes.photos || []).slice(0, 3), ...initialPhotos].slice(0, 4),
-          isLoading: false,
-          status: null
+        // 3. Independent Mermaid Generation (Guaranteed Fallback)
+        generateMermaid(`${topic} concept map`).then(d => {
+          if (!d || output.dataset.currentTopic !== topic) return;
+          aiDiagrams = [d.replace(/```mermaid\n?|```/g, '').trim()];
+          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true);
+        }).catch(() => {
+          aiDiagrams = [`graph TD\nA["${topic}"] --> B["Core Concepts"]\nB --> C["Theory"]\nB --> D["Real-World Applications"]\nC --> E["Formulas & Derivations"]\nD --> F["Engineering Use Cases"]`];
+          if (output.dataset.currentTopic === topic)
+            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true);
         });
-      } else {
-        updateUI({ isLoading: false, status: null });
+
+      } catch (err) {
+        console.error("Critical error in generateNotes:", err);
       }
-
-      // Independent Mermaid Generation
-      generateMermaid(topic).then(code => {
-        if (code) updateUI({ diagrams: [code] });
-      });
-
-    } catch (err) {
-      console.error("[Notes] Fallback sequence error:", err);
-      updateUI({
-        notes: `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Critical Failure</strong><p>${err.message}</p></div></div>`,
-        isLoading: false,
-        status: null
-      });
+    } else {
+      // Local mode
+      notesHTML = generateLocalNotes(course, unit, topic, level);
+      renderFullUI(notesHTML, [], null, [], false);
     }
-  } else {
-    // Non-AI path
-    updateUI({ notes: generateLocalNotes(course, unit, topic, level), isLoading: false, status: null });
-  }
+  })();
 }
 
 // Visual generation utilities removed as AI visuals handle this now.
