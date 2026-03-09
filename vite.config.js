@@ -12,9 +12,21 @@ export default defineConfig({
                 secure: false,
             },
             '/ai-chat': {
-                target: 'https://text.pollinations.ai',
+                target: 'https://enter.pollinations.ai',
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/ai-chat/, ''),
+                secure: false,
+            },
+            '/google-ai': {
+                target: 'https://generativelanguage.googleapis.com',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/google-ai/, ''),
+                secure: false,
+            },
+            '/openrouter-ai': {
+                target: 'https://openrouter.ai/api/v1',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/openrouter-ai/, ''),
                 secure: false,
             },
         },

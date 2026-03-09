@@ -4,10 +4,15 @@
  */
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const getGeminiUrl = () => {
+const getGeminiUrl = (modelOverride) => {
     const key = import.meta.env.VITE_GEMINI_API_KEY;
+    const model = modelOverride || GEMINI_MODEL;
     if (!key) console.warn('[AI Client] MISSING VITE_GEMINI_API_KEY in environment.');
-    return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+    // Use local proxy in dev to avoid CORS issues
+    const baseUrl = import.meta.env.DEV
+        ? '/google-ai/v1/models'
+        : 'https://generativelanguage.googleapis.com/v1/models';
+    return `${baseUrl}/${model}:generateContent?key=${key}`;
 };
 
 const getOpenRouterKey = () => {
@@ -17,12 +22,10 @@ const getOpenRouterKey = () => {
 };
 // Models in priority order — Comprehensive Primary Tier
 const FALLBACK_MODELS = [
-    'google/gemini-2.0-flash-exp:free',
+    'openai/gpt-4o',
     'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'google/gemma-3-12b-it:free',
-    'mistralai/mistral-7b-instruct:free',
-    'qwen/qwen-2.5-72b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
+    'google/gemini-pro'
 ];
 const DIAGRAM_MODEL = 'openai/gpt-4o-mini';
 const IMAGE_PROMPT_MODEL = 'openai/gpt-4o-mini';
@@ -42,6 +45,37 @@ function cleanWikitext(text) {
         .replace(/'''/g, '')
         .replace(/''/g, '')
         .replace(/\n+/g, ' '); // Enforce horizontal block flow
+}
+
+/**
+ * Helper for safe JSON fetching with HTML fallback protection.
+ */
+async function safeFetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get("content-type");
+
+    if (contentType && contentType.includes("text/html")) {
+        const text = await response.text();
+        if (text.trim().toLowerCase().startsWith("<!doctype html") || text.includes("<html")) {
+            throw new Error(`Proxy/Server returned HTML instead of JSON (Status: ${response.status}). URL: ${url}`);
+        }
+    }
+
+    if (!response.ok) {
+        let errorData;
+        try {
+            errorData = await response.json();
+        } catch (e) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        throw new Error(`HTTP ${response.status}: ${errorData.error?.message || errorData.message || response.statusText}`);
+    }
+
+    try {
+        return await response.json();
+    } catch (e) {
+        throw new Error(`Failed to parse JSON response from ${url}`);
+    }
 }
 
 /**
@@ -77,27 +111,59 @@ async function callGemini(messages, options = {}) {
 
     try {
         const bodyPayload = {
-            contents: [{ parts: parts }],
+            contents: [],
             generationConfig: {
                 temperature: temperature,
                 maxOutputTokens: 4096,
             }
         };
 
+        // 1. Set System Instruction explicitly
+        if (systemMsg) {
+            bodyPayload.system_instruction = { parts: [{ text: systemMsg.content }] };
+        }
+
+        // 2. Add User Content Part
+        const userParts = [];
+        if (userMsg?.content) {
+            userParts.push({ text: userMsg.content });
+        }
+
+        if (options.image) {
+            userParts.push({
+                inline_data: {
+                    mime_type: options.imageType || "image/jpeg",
+                    data: options.image
+                }
+            });
+        }
+
+        if (userParts.length === 0) {
+            // Fallback to fullPrompt if somehow userMsg is missing but fullPrompt exists
+            userParts.push({ text: fullPrompt });
+        }
+
+        bodyPayload.contents.push({ role: 'user', parts: userParts });
+
+        // Add safety settings to reduce blockage risk
+        bodyPayload.safetySettings = [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ];
+
         if (options.useGoogleSearch) {
             bodyPayload.tools = [{ google_search: {} }];
         }
 
-        const response = await fetch(getGeminiUrl(), {
+        const data = await safeFetchJson(getGeminiUrl(options.modelOverride), {
             method: 'POST',
             signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(bodyPayload)
         });
         clearTimeout(timeoutId);
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error?.message || `Gemini HTTP ${response.status}`);
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) throw new Error("Gemini returned empty content");
         return text;
@@ -126,37 +192,41 @@ export async function generateContent(messages, options = {}) {
         return null; // Don't fall back to standard models if search was explicitly requested
     }
 
+    // 2. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
+    let lastError = null;
+
     // 1. Try Gemini first (primary — fast & free)
     try {
         if (options.onProgress) options.onProgress("Consulting Gemini 2.0...");
         const result = await callGemini(messages, options);
-        if (result && result.trim().length > 5) { // reduced from 10 to 5
-            return result; // Return RAW markdown
+        if (result && result.trim().length > 5) {
+            return result;
         }
     } catch (geminiErr) {
         console.error('[AI Client] Gemini failed:', geminiErr.message);
+        lastError = new Error(`Gemini: ${geminiErr.message}`);
     }
 
-    // 2. Try via OpenRouter (handles CORS properly, Gemini Flash is #1 in list)
     const modelsToTry = options.model ? [options.model, ...FALLBACK_MODELS] : FALLBACK_MODELS;
-    let lastError = null;
 
     for (const model of modelsToTry) {
         // Skip models that don't support vision if an image is provided
-        if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude')) {
+        if (options.image && !model.includes('gpt-4o') && !model.includes('gemini') && !model.includes('claude') && !model.includes('pixtral')) {
             continue;
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased from 12s to 30s for complex queries
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+        const endpoint = import.meta.env.DEV
+            ? "/openrouter-ai/chat/completions"
+            : "https://openrouter.ai/api/v1/chat/completions";
+
         try {
             if (options.onProgress) options.onProgress(`Connecting to ${model.split('/')[1] || model}...`);
 
-            console.log(`[AI Client] Fallback: ${model}...`);
-
             const routerMessages = [...messages];
             if (options.image) {
-                // OpenRouter/GPT-4o style multimodal message
                 const lastIdx = routerMessages.length - 1;
                 const lastMsg = routerMessages[lastIdx];
                 if (lastMsg.role === 'user') {
@@ -175,7 +245,7 @@ export async function generateContent(messages, options = {}) {
                 }
             }
 
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            const data = await safeFetchJson(endpoint, {
                 method: "POST",
                 signal: controller.signal,
                 headers: {
@@ -188,28 +258,21 @@ export async function generateContent(messages, options = {}) {
                     model: model,
                     messages: routerMessages,
                     temperature: temperature,
-                    max_tokens: options.max_tokens || 2000,
-                    // Safety: Force plain text math in labels if models try to be too smart
-                    system_prompt: "Note: Use only simple math symbols like √, /, ^, * in any text. No LaTeX."
+                    max_tokens: options.max_tokens || 3500,
+                    system_prompt: "Output clean Markdown only. No HTML. No LaTeX. No code block wrappers."
                 })
             });
             clearTimeout(timeoutId);
-            const data = await response.json();
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    console.error("[AI Client] Auth Error: Missing or Invalid API Key/Header.");
-                }
-                throw new Error(data.error?.message || `HTTP ${response.status}`);
-            }
+
             if (!data.choices?.length) throw new Error("Empty response from OpenRouter");
-            return data.choices[0].message.content; // Return RAW markdown
+            return data.choices[0].message.content;
         } catch (error) {
-            console.warn(`[AI Client] ${model} failed:`, error.message);
-            lastError = error;
+            console.error(`[AI Client] OpenRouter ${model} failed:`, error.message);
+            lastError = new Error(`${model}: ${error.message}`);
         }
     }
 
-    throw lastError || new Error("All AI models failed.");
+    throw lastError || new Error("All AI models failed. Please check your API keys or internet connection.");
 }
 
 /**
@@ -221,7 +284,7 @@ export async function fetchWikipediaWikitext(topic) {
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchData = await fetch(searchUrl, { signal: controller.signal }).then(r => r.json());
+        const searchData = await safeFetchJson(searchUrl, { signal: controller.signal });
         if (!searchData.query?.search?.length) {
             clearTimeout(timeoutId);
             return "";
@@ -229,7 +292,7 @@ export async function fetchWikipediaWikitext(topic) {
 
         const pageTitle = searchData.query.search[0].title;
         const parseUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections|wikitext&format=json&origin=*`;
-        const parseData = await fetch(parseUrl, { signal: controller.signal }).then(r => r.json());
+        const parseData = await safeFetchJson(parseUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!parseData.parse?.sections || !parseData.parse?.wikitext) return "";
@@ -310,16 +373,15 @@ export async function generateImage(prompt) {
 export async function fetchWikipediaResources(topic, limit = 10) {
     try {
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchRes = await fetch(searchUrl);
-        const searchData = await searchRes.json();
+        const searchRes = await safeFetchJson(searchUrl);
+        const searchData = searchRes;
         if (!searchData.query?.search?.length) return { diagrams: [], photos: [] };
 
         const pageTitle = searchData.query.search[0].title;
 
         // Fetch all image URLs in ONE call using generator
         const imagesUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&generator=images&gimlimit=${limit * 2}&prop=imageinfo&iiprop=url&format=json&origin=*`;
-        const imagesRes = await fetch(imagesUrl);
-        const imagesData = await imagesRes.json();
+        const imagesData = await safeFetchJson(imagesUrl);
 
         if (!imagesData.query?.pages) return { diagrams: [], photos: [] };
 
@@ -366,18 +428,32 @@ export async function fetchWikipediaGallery(topic, limit = 2) {
  * Fetches full Wikipedia article content and formats it as structured study notes.
  * Acts as a primary fallback when AI services fail or reach their limit.
  */
-export async function fetchWikipediaContent(topic) {
+export async function fetchWikipediaContent(topic, unitTitle = "") {
     try {
         // 1. Find best matching page
-        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchData = await fetch(searchUrl).then(r => r.json());
-        if (!searchData.query?.search?.length) return null;
+        let searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
+        let searchRes = await safeFetchJson(searchUrl);
+        let searchData = searchRes;
 
+        // 1b. Fallback broad search if specific topic fails
+        if (!searchData.query?.search?.length && topic.includes(':')) {
+            const broaderTopic = topic.split(':')[1].trim();
+            searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(broaderTopic)}&format=json&origin=*`;
+            searchData = await safeFetchJson(searchUrl);
+        }
+
+        // 1c. Deep Fallback: Search Unit Title if topics fail
+        if (!searchData.query?.search?.length && unitTitle) {
+            searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(unitTitle)}&format=json&origin=*`;
+            searchData = await safeFetchJson(searchUrl);
+        }
+
+        if (!searchData.query?.search?.length) return null;
         const pageTitle = searchData.query.search[0].title;
 
         // 2. Fetch full extract + sections (not just intro)
         const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=extracts&exsectionformat=wiki&explaintext&format=json&origin=*`;
-        const extractData = await fetch(extractUrl).then(r => r.json());
+        const extractData = await safeFetchJson(extractUrl);
 
         const pages = extractData.query?.pages;
         if (!pages) return null;
@@ -427,11 +503,13 @@ export async function fetchWikipediaContent(topic) {
             }).join('');
 
             return `
-                <div style="margin-bottom: 24px;">
-                    <h3 style="color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
-                        📖 ${section.title}
+                <div style="margin-bottom: 28px; padding: 20px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                    <h3 style="color: var(--accent-cyan); display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-family: 'Inter', sans-serif;">
+                        <span style="font-size: 1.2rem;">📖</span> ${section.title}
                     </h3>
-                    ${paragraphs}
+                    <div style="font-size: 0.92rem; color: var(--text-secondary); line-height: 1.7;">
+                        ${paragraphs}
+                    </div>
                 </div>`;
         }).join('');
 
@@ -440,8 +518,10 @@ export async function fetchWikipediaContent(topic) {
                 <div class="callout callout-info" style="margin-bottom: 20px;">
                     <div class="callout-icon">📚</div>
                     <div>
-                        <strong>Sourced from Wikipedia — ${pageTitle}</strong>
-                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently at capacity. Providing verified encyclopedic research. Full article: <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan);">Wikipedia: ${pageTitle}</a></p>
+                        <strong>Synthesizing from Wikipedia — ${pageTitle}</strong>
+                        <p style="font-size: 0.82rem; margin-top: 4px; color: var(--text-secondary);">AI services are currently at peak capacity. Providing verified academic research from the Wikipedia database. Full article: <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}" target="_blank" style="color: var(--accent-cyan);">Wikipedia: ${pageTitle}</a></p>
+                        <!-- DIAGNOSTICS -->
+                    </div>
                     </div>
                 </div>
                 ${sectionsHTML}
@@ -462,8 +542,8 @@ export async function fetchWikipediaImage(topic) {
     try {
         // 1. Search for the most relevant Wikipedia page
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*`;
-        const searchRes = await fetch(searchUrl);
-        const searchData = await searchRes.json();
+        const searchRes = await safeFetchJson(searchUrl);
+        const searchData = searchRes;
 
         if (!searchData.query.search.length) return null;
 
@@ -471,8 +551,8 @@ export async function fetchWikipediaImage(topic) {
 
         // 2. Fetch page details including images
         const detailsUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=pageimages|images&format=json&pithumbsize=1000&origin=*`;
-        const detailsRes = await fetch(detailsUrl);
-        const detailsData = await detailsRes.json();
+        const detailsRes = await safeFetchJson(detailsUrl);
+        const detailsData = detailsRes;
 
         const pages = detailsData.query.pages;
         const pageId = Object.keys(pages)[0];

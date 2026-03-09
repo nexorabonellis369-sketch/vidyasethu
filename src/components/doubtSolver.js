@@ -1,4 +1,5 @@
 import { generateContent } from '../utils/aiClient.js';
+import { safeParseMarkdown, sanitizeAIResponse } from '../utils/formatter.js';
 
 let selectedImageBase64 = null;
 let selectedImageType = null;
@@ -293,15 +294,14 @@ export function renderDoubtSolver(container) {
         `;
 
         try {
-            let systemPrompt = "You are a PSG Tech academic assistant. Explaining deeply and accurately. Use markdown. IMPORTANT: Use ONLY simple math symbols (e.g., √ for square root, / for fractions, ^ for powers, * for multiplication). NEVER use complex LaTeX notations like \\frac, \\sqrt, \\sin, etc.";
+            let systemPrompt = "You are a PSG Tech professor. EXPLAIN DEEPLY. IMPORTANT: Write math horizontally on one line. Use ONLY simple symbols (√, ^, /, *). NO LaTeX. NO HTML. NO Code Blocks. Output RAW Markdown only.";
             let model = undefined;
 
             if (selectedImageBase64) {
-                systemPrompt = "You are a Vision-Capable academic expert at PSG Tech. Analyze the provided image and answer with extreme precision. IMPORTANT: Use ONLY simple math symbols (e.g., √, /, ^, *). NEVER use LaTeX commands like \\frac or \\sqrt.";
-                // Let generateContent handle the vision-capable model selection (Gemini 2.0 is primary)
+                systemPrompt = "You are a Vision-Capable academic expert. Analyze this image with extreme precision. IMPORTANT: Write math horizontally on one line. Use ONLY simple symbols (√, ^, /, *). NO LaTeX. NO HTML. NO Code Blocks. Output RAW Markdown only.";
             } else if (isMathMode) {
-                systemPrompt = "You are a Mathematical & Physics Expert. Solve with step-by-step logic. IMPORTANT: Use ONLY simple math symbols (e.g., √, /, ^, *). NEVER use LaTeX or complex math notations like \\frac, \\sqrt, etc. Be extremely detailed.";
-                model = 'meta-llama/llama-3.1-405b-instruct'; // Keep powerful model for math
+                systemPrompt = "You are a Mathematical & Physics Expert. Provide detailed step-by-step logic. IMPORTANT: Write math horizontally on one line. Use ONLY simple symbols (√, ^, /, *). NO LaTeX. NO HTML. NO Code Blocks. Output RAW Markdown only.";
+                model = 'openai/gpt-4o';
             }
 
             const response = await generateContent([
@@ -341,7 +341,7 @@ export function renderDoubtSolver(container) {
                         <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent-purple);">AI Explanation</h3>
                     </div>
                     <div class="doubt-response" style="color: var(--text-secondary);">
-                        ${typeof marked !== 'undefined' ? marked.parse(response) : response}
+                        ${safeParseMarkdown(sanitizeAIResponse(response))}
                     </div>
                     <div style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 0.75rem; color: var(--text-tertiary);">
