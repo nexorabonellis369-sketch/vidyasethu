@@ -744,7 +744,7 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     if (useAI) {
       const isAdvanced = level === 'advanced_level';
       const isProgramming = /python|c programming|java|c\+\+|algorithm|data structure|javascript|web/i.test(course.title + " " + topic);
-      const codingRequirement = isProgramming ? `\n- **Code Examples & Syntax**: Provide clear, exact code snippets (wrapped in markdown code blocks e.g. \`\`\`c or \`\`\`python) demonstrating the implementation of this concept. Include comments explaining the code.` : "";
+      const codingRequirement = isProgramming ? `\n\n### Programming Code Examples\nProvide exactly **3 structured code complete examples** (wrapped in markdown code blocks e.g., \`\`\`c or \`\`\`python):\n1. **Easy Example**: Basic implementation or core concept syntax.\n2. **Moderate Example**: Logic application or simple standard algorithm.\n3. **Complex Example**: Advanced scenario, edge cases, or real-world use case.\nInclude detailed comments explaining the logic in all three examples.` : "";
 
       const prompt = isAdvanced
         ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
