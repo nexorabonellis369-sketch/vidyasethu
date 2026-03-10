@@ -20,7 +20,12 @@ export function renderDoubtSolver(container) {
                 
                 <div class="form-group">
                     <label class="form-label">❓ What is your doubt?</label>
-                    <textarea id="doubt-input" class="form-select" style="min-height: 120px; padding: 12px; resize: vertical;" placeholder="Type your question here (e.g., Explain the physical significance of Green's theorem...)"></textarea>
+                    <div style="position: relative; width: 100%;">
+                        <textarea id="doubt-input" class="form-select" style="width: 100%; min-height: 120px; padding: 12px; padding-right: 48px; resize: vertical; box-sizing: border-box;" placeholder="Type or speak your question here..."></textarea>
+                        <button id="voice-btn" class="btn btn-ghost" style="position: absolute; right: 8px; bottom: 8px; width: 36px; height: 36px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; cursor: pointer; transition: all 0.2s ease;" title="Use Voice Search">
+                            🎤
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Visual Input Area -->
@@ -89,10 +94,59 @@ export function renderDoubtSolver(container) {
 
     const solveBtn = container.querySelector('#solve-btn');
     const doubtInput = container.querySelector('#doubt-input');
+    const voiceBtn = container.querySelector('#voice-btn');
     const mathToggle = container.querySelector('#math-mode-toggle');
     const output = container.querySelector('#solver-output');
 
+    // Voice Recognition Logic
+    if (voiceBtn) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            let isListening = false;
+
+            recognition.onstart = () => {
+                isListening = true;
+                voiceBtn.innerHTML = '🔴';
+                voiceBtn.style.animation = 'pulse 1s infinite';
+                doubtInput.placeholder = 'Listening... Speak now.';
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                doubtInput.value = (doubtInput.value + ' ' + transcript).trim();
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                doubtInput.placeholder = 'Error listening. Try typing.';
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                voiceBtn.innerHTML = '🎤';
+                voiceBtn.style.animation = 'none';
+                doubtInput.placeholder = 'Type or speak your question here...';
+            };
+
+            voiceBtn.addEventListener('click', () => {
+                if (isListening) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            });
+        } else {
+            voiceBtn.style.display = 'none'; // Hide if browser doesn't support it
+        }
+    }
+
     // UI Elements for images
+
     const cameraBtn = container.querySelector('#camera-btn');
     const galleryBtn = container.querySelector('#gallery-btn');
     const galleryInput = container.querySelector('#gallery-input');

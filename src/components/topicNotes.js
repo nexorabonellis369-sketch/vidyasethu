@@ -519,18 +519,24 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
           <button id="mini-doubt-close" style="background:none; border:none; color:var(--text-tertiary); font-size:1.4rem; cursor:pointer; line-height:1;">✕</button>
         </div>
 
-        <textarea id="mini-doubt-input" style="
-            width:100%; min-height:70px; max-height:140px;
-            background:var(--bg-tertiary);
-            border:1px solid var(--border-color);
-            border-radius:10px;
-            color:var(--text-primary);
-            font-size:0.88rem;
-            padding:12px;
-            resize:vertical;
-            font-family:inherit;
-            box-sizing:border-box;
-        " placeholder="Type your doubt about ${topic.replace(/`/g, "'")}..."></textarea>
+        <div style="position: relative; width: 100%;">
+            <textarea id="mini-doubt-input" style="
+                width:100%; min-height:70px; max-height:140px;
+                background:var(--bg-tertiary);
+                border:1px solid var(--border-color);
+                border-radius:10px;
+                color:var(--text-primary);
+                font-size:0.88rem;
+                padding:12px;
+                padding-right: 44px;
+                resize:vertical;
+                font-family:inherit;
+                box-sizing:border-box;
+            " placeholder="Type or speak doubt..."></textarea>
+            <button id="mini-voice-btn" class="btn btn-ghost" style="position: absolute; right: 6px; bottom: 6px; width: 32px; height: 32px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; z-index: 10; cursor: pointer; transition: all 0.2s ease;" title="Use Voice Search">
+                🎤
+            </button>
+        </div>
 
         <div style="display:flex; gap:10px; margin-top:12px;">
           <button id="mini-doubt-send" class="btn btn-primary" style="flex:1; justify-content:center; padding:11px; font-size:0.9rem; border-radius:10px;">
@@ -588,7 +594,55 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     const sendBtn = document.getElementById('mini-doubt-send');
     const clearBtn = document.getElementById('mini-doubt-clear');
     const input = document.getElementById('mini-doubt-input');
+    const voiceBtn = document.getElementById('mini-voice-btn');
     const panelOutput = document.getElementById('mini-doubt-output');
+
+    // Voice Recognition Logic for Mini Panel
+    if (voiceBtn) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        let isListening = false;
+
+        recognition.onstart = () => {
+          isListening = true;
+          voiceBtn.innerHTML = '🔴';
+          voiceBtn.style.animation = 'pulse 1s infinite';
+          input.placeholder = 'Listening...';
+        };
+
+        recognition.onresult = (event) => {
+          const transcript = event.results[0][0].transcript;
+          input.value = (input.value + ' ' + transcript).trim();
+        };
+
+        recognition.onerror = (event) => {
+          console.error('Mini Speech recognition error:', event.error);
+          input.placeholder = 'Error. Try typing.';
+        };
+
+        recognition.onend = () => {
+          isListening = false;
+          voiceBtn.innerHTML = '🎤';
+          voiceBtn.style.animation = 'none';
+          input.placeholder = 'Type or speak doubt...';
+        };
+
+        voiceBtn.addEventListener('click', () => {
+          if (isListening) {
+            recognition.stop();
+          } else {
+            recognition.start();
+          }
+        });
+      } else {
+        voiceBtn.style.display = 'none'; // Hide if browser doesn't support it
+      }
+    }
 
     function openPanel() {
       panel.style.display = 'block';
@@ -690,59 +744,34 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     if (useAI) {
       const isAdvanced = level === 'advanced_level';
       const prompt = isAdvanced
-        ? `You are a GATE exam expert. Generate CONCISE GATE-level notes for: "${topic}" in "${course.title}".
+        ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
+Include:
+- Precise technical definition with mathematical rigour
+- Full derivation from first principles, with each step explained
+- Key theorems, proofs, or laws related to this topic
+- Industrial and real-world engineering applications (3-4 specific examples)
 
-KEEP IT SHORT. Max 400 words for theory. Bullet points only — no long paragraphs.
+### Solved Example Problems (Easy to Advanced — 4 to 5 problems)
+Provide exactly **5 solved numerical/conceptual problems** in increasing difficulty:
+  1. **Problem 1 (Easy – 2 marks):** A basic definitional or substitution problem. Show full working.
+  2. **Problem 2 (Moderate – 4 marks):** Requires applying the formula with standard values. Show full working.
+  3. **Problem 3 (Intermediate – 6 marks):** Multi-step derivation or application. Show complete solution with explanation.
+  4. **Problem 4 (Hard – 8 marks):** Combines two or more concepts. Requires analytical thinking. Show full working.
+  5. **Problem 5 (GATE-Level – 10 marks):** Complex problem involving edge cases, special conditions, or proof. Show rigorous solution.
 
-## 1. Core Concept (3-4 lines max)
-Precise technical definition + key insight.
-
-## 2. Key Formulas
-List each formula with variable meanings. One line per formula.
-
-## 3. Difficult Example Problems (Step-by-Step like a coding tutorial)
-Provide exactly **3 hard problems** students struggle with. For EACH:
-- **Problem:** Clear GATE-style question with all values given.
-- **Step 1:** What to do first (explain simply).
-- **Step 2:** Actual calculation.
-- **Step 3+:** Continue step-by-step until solved.
-- **Answer:** Box the final answer clearly.
-
-Make them: Intermediate → Hard → GATE-Level difficulty.
-
-## 4. Exam Tips
-- 3 key points that appear in GATE/university exams
-- Common traps and mistakes to avoid
-
-Use simple math symbols (√, ^, /). NO LaTeX. Markdown format only.`
-        : `You are a PSG Tech university professor. Generate CONCISE academic notes for: "${topic}" in "${course.title}".
-
-KEEP IT SHORT AND CLEAR. Max 350 words for theory. Use bullet points, not paragraphs.
-
-## 1. Definition (2-3 lines max)
-Simple, precise definition.
-
-## 2. Key Formula(s)
-List formulas. One line per formula with variable meanings.
-
-## 3. Real-World Application (1-2 lines only)
-Say where it is actually used in real life.
-
-## 4. Difficult Example Problems (Step-by-Step like a coding tutorial)
-Provide exactly **3 problems** that students struggle with. For EACH:
-- **Problem:** Write a clear, exam-style question.
-- **Step 1:** (explain this step simply)
-- **Step 2:** (next step with calculation)
-- Continue steps until fully solved.
-- **Final Answer:** State clearly.
-
-Problem 1 = tricky application, Problem 2 = multi-step, Problem 3 = hardest exam-type.
-
-## 5. Quick Exam Tips
-- 2-3 bullet points on what to remember in exams
-- Common mistakes to avoid
-
-Format using Markdown (### headings, ** bold, - lists). Do NOT use HTML tags. Do NOT use LaTeX.`;
+- Common university exam questions (2m, 6m, 10m formats)
+- Special cases, boundary conditions, and assumptions
+Use simple math symbols only (e.g., √ for square root, ^ for power, / for fraction). Do NOT use LaTeX. Format in standard Markdown.`
+        : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
+Include:
+- Detailed definition and conceptual overview
+- **Industrial and Real-World Applications** (Provide 3-4 specific examples of where this is used in modern technology or engineering)
+- Key mathematical formulas with thorough variable explanations
+- Core working principles or scientific theories
+- 2-3 step-by-step solved derivation points or logical proofs
+- **Complex Example Problem**: Provide one difficult/complex understanding problem sum with a simple, step-by-step clear procedure to solve it.
+- Common exam questions (2m, 6m, 10m formats)
+Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
 
       try {
         // Fetch text notes in background
