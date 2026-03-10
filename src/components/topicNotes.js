@@ -743,6 +743,9 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
   (async () => {
     if (useAI) {
       const isAdvanced = level === 'advanced_level';
+      const isProgramming = /python|c programming|java|c\+\+|algorithm|data structure|javascript|web/i.test(course.title + " " + topic);
+      const codingRequirement = isProgramming ? `\n- **Code Examples & Syntax**: Provide clear, exact code snippets (wrapped in markdown code blocks e.g. \`\`\`c or \`\`\`python) demonstrating the implementation of this concept. Include comments explaining the code.` : "";
+
       const prompt = isAdvanced
         ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
 Include:
@@ -760,7 +763,7 @@ Provide exactly **5 solved numerical/conceptual problems** in increasing difficu
   5. **Problem 5 (GATE-Level – 10 marks):** Complex problem involving edge cases, special conditions, or proof. Show rigorous solution.
 
 - Common university exam questions (2m, 6m, 10m formats)
-- Special cases, boundary conditions, and assumptions
+- Special cases, boundary conditions, and assumptions${codingRequirement}
 Use simple math symbols only (e.g., √ for square root, ^ for power, / for fraction). Do NOT use LaTeX. Format in standard Markdown.`
         : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
 Include:
@@ -769,7 +772,7 @@ Include:
 - Key mathematical formulas with thorough variable explanations
 - Core working principles or scientific theories
 - 2-3 step-by-step solved derivation points or logical proofs
-- **Complex Example Problem**: Provide one difficult/complex understanding problem sum with a simple, step-by-step clear procedure to solve it.
+- **Complex Example Problem**: Provide one difficult/complex understanding problem sum with a simple, step-by-step clear procedure to solve it.${codingRequirement}
 - Common exam questions (2m, 6m, 10m formats)
 Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
 
