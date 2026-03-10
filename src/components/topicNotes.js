@@ -747,34 +747,33 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
       const codingRequirement = isProgramming ? `\n\n### Programming Code Examples\nProvide exactly **3 structured code complete examples** (wrapped in markdown code blocks e.g., \`\`\`c or \`\`\`python):\n1. **Easy Example**: Basic implementation or core concept syntax.\n2. **Moderate Example**: Logic application or simple standard algorithm.\n3. **Complex Example**: Advanced scenario, edge cases, or real-world use case.\nInclude detailed comments explaining the logic in all three examples.` : "";
 
       const prompt = isAdvanced
-        ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
+        ? `Generate highly detailed, in-depth academic notes suitable for an advanced BSc/MSc/GATE level student for the topic: "${topic}" in the course "${course.title}".
 Include:
-- Precise technical definition with mathematical rigour
-- Full derivation from first principles, with each step explained
-- Key theorems, proofs, or laws related to this topic
-- Industrial and real-world engineering applications (3-4 specific examples)
+- Precise and rigorous technical definition with comprehensive theoretical background
+- Full mathematical derivation from first principles, with each step explicitly justified
+- Key theorems, formal proofs, boundary conditions, and governing laws
+- 3-4 advanced industrial/real-world engineering applications with deep technical context
 
-### Solved Example Problems (Easy to Advanced — 4 to 5 problems)
+### Solved Example Problems (Rigorous 5-Level Set)
 Provide exactly **5 solved numerical/conceptual problems** in increasing difficulty:
-  1. **Problem 1 (Easy – 2 marks):** A basic definitional or substitution problem. Show full working.
-  2. **Problem 2 (Moderate – 4 marks):** Requires applying the formula with standard values. Show full working.
-  3. **Problem 3 (Intermediate – 6 marks):** Multi-step derivation or application. Show complete solution with explanation.
-  4. **Problem 4 (Hard – 8 marks):** Combines two or more concepts. Requires analytical thinking. Show full working.
-  5. **Problem 5 (GATE-Level – 10 marks):** Complex problem involving edge cases, special conditions, or proof. Show rigorous solution.
+  1. **Problem 1 (Easy – 2 marks):** Basic conceptual application. Show full working.
+  2. **Problem 2 (Moderate – 4 marks):** Multi-step standard application. Show full working.
+  3. **Problem 3 (Intermediate – 6 marks):** Analytical problem combining concepts. Show complete solution.
+  4. **Problem 4 (Hard – 8 marks):** Complex problem involving edge cases or uncommon conditions.
+  5. **Problem 5 (GATE-Level – 10 marks):** Extremely rigorous problem/proof requiring deep conceptual understanding.
 
-- Common university exam questions (2m, 6m, 10m formats)
-- Special cases, boundary conditions, and assumptions${codingRequirement}
+- Common high-level university exam questions (6m, 10m formats)
+- Historical context or theoretical limitations (where applicable)${codingRequirement}
 Use simple math symbols only (e.g., √ for square root, ^ for power, / for fraction). Do NOT use LaTeX. Format in standard Markdown.`
-        : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
+        : `Generate study notes in **simple, easy-to-understand language** suitable for a standard BSc undergraduate student for the topic: "${topic}" in the course "${course.title}". 
 Include:
-- Detailed definition and conceptual overview
-- **Industrial and Real-World Applications** (Provide 3-4 specific examples of where this is used in modern technology or engineering)
-- Key mathematical formulas with thorough variable explanations
-- Core working principles or scientific theories
-- 2-3 step-by-step solved derivation points or logical proofs
-- **Complex Example Problem**: Provide one difficult/complex understanding problem sum with a simple, step-by-step clear procedure to solve it.${codingRequirement}
-- Common exam questions (2m, 6m, 10m formats)
-Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
+- Clear, straightforward definition and basic conceptual overview
+- **Real-World Applications** (Provide 2-3 simple, relatable examples of where this is used in everyday technology)
+- Core mathematical formulas explained simply, defining every variable
+- 1-2 easy-to-follow, step-by-step solved typical exam problems (Basic/Moderate difficulty)
+- Summary of the core working principles without overcomplicating the theory${codingRequirement}
+- Common short-answer university exam questions (2m, 6m formats)
+Use conversational but professional academic language. Avoid overly dense jargon where a simple explanation works better. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
 
       try {
         // Fetch text notes in background
@@ -782,8 +781,10 @@ Use professional PSG Tech level technical language. Format using standard Markdo
           try {
             if (output.dataset.currentTopic === topic) renderFullUI(skeletonNotes, [], [], [], true, "Generating notes with Pollinations AI...");
 
-            const groundedSystemPrompt = `You are a university professor. Provide deep, structured academic notes for PSG Tech curriculum. 
-Use proper mathematical unicode symbols (like √, x², ÷) or format equations clearly using simple text (like a/b). Do NOT use markdown LaTeX formatting (no $ or $$).`;
+            const groundedSystemPrompt = isAdvanced
+              ? `You are a strict, senior university professor. Provide exceptionally deep, structured, and rigorous academic notes for advanced curriculum. Use proper mathematical unicode symbols (like √, x², ÷). Do NOT use markdown LaTeX formatting (no $ or $$).`
+              : `You are a helpful university tutor explaining concepts to a BSc student. Use clear, simple, conversational language to build foundational understanding. Use proper mathematical unicode symbols (like √, x², ÷). Do NOT use markdown LaTeX formatting (no $ or $$).`;
+
 
             const aiResult = await generateContent([
               { role: "system", content: groundedSystemPrompt },
