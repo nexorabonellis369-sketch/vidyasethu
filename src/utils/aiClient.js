@@ -93,6 +93,7 @@ async function callPollinations(messages, options = {}) {
             headers['Authorization'] = `Bearer ${pollKey}`;
         }
 
+        if (options.onProgress) options.onProgress("Connecting to AI cluster...");
         const response = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
             method: "POST",
             signal: controller.signal,
@@ -104,12 +105,15 @@ async function callPollinations(messages, options = {}) {
                 jsonMode: false
             })
         });
+
+        if (options.onProgress) options.onProgress("Synthesizing response...");
         clearTimeout(timeoutId);
 
         if (!response.ok) throw new Error(`Pollinations HTTP ${response.status}`);
         const data = await response.json();
         const text = data.choices?.[0]?.message?.content;
         if (!text) throw new Error("Pollinations returned empty content");
+        if (options.onProgress) options.onProgress("Finalizing academic content...");
         return text;
     } catch (e) {
         clearTimeout(timeoutId);
@@ -153,7 +157,7 @@ export async function generateContent(messages, options = {}) {
         }
     }
 
-    if (options.onProgress) options.onProgress("Generating with Pollinations AI...");
+    if (options.onProgress) options.onProgress("Initializing AI researcher...");
     console.log(`[AI Client] Requesting Pollinations AI...`);
 
     try {

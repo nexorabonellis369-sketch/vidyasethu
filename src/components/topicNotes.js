@@ -256,7 +256,7 @@ export function renderTopicNotes(container, { allSemesters, selectedCourse, getC
         unit: unit?.num,
         topic: topic,
         level: level,
-        html: notesEl.innerHTML,
+        html: document.getElementById('notes-body-content')?.innerHTML || notesEl.innerHTML,
         savedAt: new Date().toISOString()
       };
 
@@ -273,7 +273,7 @@ export function renderTopicNotes(container, { allSemesters, selectedCourse, getC
             user_id: user.insforge_id,
             course_code: innerCourse?.code,
             topic: topic,
-            content: notesEl.innerHTML,
+            content: document.getElementById('notes-body-content')?.innerHTML || notesEl.innerHTML,
             is_ai_generated: true,
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id, topic' });
@@ -386,8 +386,8 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
             </div>
           </div>
         ` : ''}
-
-        ${notes}
+        <div id="notes-body-content">
+          ${notes}
   
         ${(isLoadingVisuals || diagrams.length > 0 || graphs.length > 0) ? `
         <h2>📖 AI Graphical Analysis</h2>
@@ -481,6 +481,7 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
               ${books.references.map(r => `<li>${r}</li>`).join('')}
             </ul>
           </div>` : ''}
+        </div><!-- end notes-body-content -->
       </div>
       `;
 
@@ -731,12 +732,22 @@ Use proper mathematical unicode symbols (like √, x², ÷) or format equations 
               { role: "user", content: prompt }
             ], {
               onProgress: (status) => {
-                const title = output.querySelector('#gen-status-title');
-                const progress = output.querySelector('#gen-progress-bar');
-                const percent = output.querySelector('#gen-progress-percent');
+                const hud = output.querySelector('#gen-hud');
+                if (!hud) return;
+
+                const title = hud.querySelector('#gen-status-title');
+                const progress = hud.querySelector('#gen-progress-bar');
+                const percent = hud.querySelector('#gen-progress-percent');
+
                 if (title) title.innerText = status;
-                if (progress) progress.style.width = '45%';
-                if (percent) percent.innerText = '45%';
+
+                let pct = '10%';
+                if (status.includes('Connecting')) pct = '35%';
+                if (status.includes('Synthesizing')) pct = '60%';
+                if (status.includes('Finalizing')) pct = '90%';
+
+                if (progress) progress.style.width = pct;
+                if (percent) percent.innerText = pct;
               }
             });
 
@@ -795,6 +806,7 @@ Use proper mathematical unicode symbols (like √, x², ÷) or format equations 
 
           const progress = output.querySelector('#gen-progress-bar');
           if (progress) progress.style.width = '90%';
+          output.dataset.notesStatus = 'complete';
           renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
         }).catch(() => {
           if (output.dataset.currentTopic === topic) {
@@ -808,11 +820,15 @@ Use proper mathematical unicode symbols (like √, x², ÷) or format equations 
         generateMermaid(`${topic} concept map`).then(d => {
           if (!d || output.dataset.currentTopic !== topic) return;
           aiDiagrams = [d.replace(/```mermaid\n?|```/g, '').trim()];
-          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true);
+          // If Wikipedia already finished (meaning HUD should be gone), don't bring it back
+          const isActuallyDone = output.dataset.notesStatus === 'complete';
+          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, !isActuallyDone);
         }).catch(() => {
           aiDiagrams = [`graph TD\nA["${topic}"] --> B["Core Concepts"]\nB --> C["Theory"]\nB --> D["Real-World Applications"]\nC --> E["Formulas & Derivations"]\nD --> F["Engineering Use Cases"]`];
-          if (output.dataset.currentTopic === topic)
-            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true);
+          if (output.dataset.currentTopic === topic) {
+            const isActuallyDone = output.dataset.notesStatus === 'complete';
+            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, !isActuallyDone);
+          }
         });
 
       } catch (err) {

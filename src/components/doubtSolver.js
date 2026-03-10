@@ -137,53 +137,98 @@ export function renderDoubtSolver(container) {
     galleryBtn.addEventListener('click', () => galleryInput.click());
     galleryInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
 
+    let currentFacingMode = 'environment';
+
     cameraBtn.addEventListener('click', async () => {
+        const startCamera = async (facingMode) => {
+            try {
+                if (window.currentStream) {
+                    window.currentStream.getTracks().forEach(track => track.stop());
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode }
+                });
+                window.currentStream = stream;
+                return stream;
+            } catch (err) {
+                console.error("Camera error:", err);
+                throw err;
+            }
+        };
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            // Create a temporary video element
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.play();
+            let stream = await startCamera(currentFacingMode);
 
             // Simple overlay UI for capture
             const captureOverlay = document.createElement('div');
-            captureOverlay.style = "position:fixed; inset:0; z-index:5000; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center;";
-            captureOverlay.innerHTML = `
-                <video id="capture-video" style="max-width:100%; max-height:80vh; transform: scaleX(-1);"></video>
-                <div style="display:flex; gap:20px; margin-top:20px;">
-                    <button id="snap-btn" class="btn btn-primary btn-lg">📸 Capture</button>
-                    <button id="cancel-snap-btn" class="btn btn-secondary btn-lg">✕ Cancel</button>
-                </div>
-            `;
+            captureOverlay.id = 'camera-capture-overlay';
+            captureOverlay.style = "position:fixed; inset:0; z-index:5000; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 20px;";
+
+            const updateOverlayUI = () => {
+                const isUser = currentFacingMode === 'user';
+                captureOverlay.innerHTML = `
+                    <div style="position:relative; width:100%; max-height:70vh; display:flex; justify-content:center; background:#111; border-radius:12px; overflow:hidden;">
+                        <video id="capture-video" style="max-width:100%; max-height:70vh; ${isUser ? 'transform: scaleX(-1);' : ''}"></video>
+                        <div style="position:absolute; top:15px; right:15px; background:rgba(0,0,0,0.5); padding:6px 12px; border-radius:20px; color:#fff; font-size:0.75rem;">
+                            ${isUser ? 'Front Camera' : 'Back Camera'}
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:24px; width:100%; max-width:400px;">
+                        <button id="snap-btn" class="btn btn-primary btn-lg" style="grid-column: span 2; justify-content:center; padding:18px;">📸 Capture Photo</button>
+                        <button id="switch-cam-btn" class="btn btn-secondary">🔄 Switch</button>
+                        <button id="cancel-snap-btn" class="btn btn-outline" style="border-color:rgba(255,255,255,0.2); color:#fff;">✕ Close</button>
+                    </div>
+                `;
+
+                const video = captureOverlay.querySelector('#capture-video');
+                video.srcObject = window.currentStream;
+                video.play();
+
+                captureOverlay.querySelector('#switch-cam-btn').onclick = async () => {
+                    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+                    try {
+                        stream = await startCamera(currentFacingMode);
+                        updateOverlayUI();
+                    } catch (err) {
+                        alert("Could not switch camera. Using previous one.");
+                        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+                    }
+                };
+
+                captureOverlay.querySelector('#snap-btn').onclick = () => {
+                    const videoEl = captureOverlay.querySelector('#capture-video');
+                    const canvas = document.createElement('canvas');
+                    canvas.width = videoEl.videoWidth;
+                    canvas.height = videoEl.videoHeight;
+                    const ctx = canvas.getContext('2d');
+
+                    if (currentFacingMode === 'user') {
+                        ctx.translate(canvas.width, 0);
+                        ctx.scale(-1, 1);
+                    }
+
+                    ctx.drawImage(videoEl, 0, 0);
+                    showPreview(canvas.toDataURL('image/jpeg'));
+
+                    const img = new Image();
+                    img.onload = () => { originalImage = img; };
+                    img.src = canvas.toDataURL('image/jpeg');
+
+                    window.currentStream.getTracks().forEach(track => track.stop());
+                    document.body.removeChild(captureOverlay);
+                };
+
+                captureOverlay.querySelector('#cancel-snap-btn').onclick = () => {
+                    window.currentStream.getTracks().forEach(track => track.stop());
+                    document.body.removeChild(captureOverlay);
+                };
+            };
+
             document.body.appendChild(captureOverlay);
-            captureOverlay.querySelector('#capture-video').srcObject = stream;
-            captureOverlay.querySelector('#capture-video').play();
-
-            captureOverlay.querySelector('#snap-btn').onclick = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.translate(canvas.width, 0);
-                ctx.scale(-1, 1);
-                ctx.drawImage(video, 0, 0);
-                showPreview(canvas.toDataURL('image/jpeg'));
-
-                const img = new Image();
-                img.onload = () => { originalImage = img; };
-                img.src = canvas.toDataURL('image/jpeg');
-
-                stream.getTracks().forEach(track => track.stop());
-                document.body.removeChild(captureOverlay);
-            };
-
-            captureOverlay.querySelector('#cancel-snap-btn').onclick = () => {
-                stream.getTracks().forEach(track => track.stop());
-                document.body.removeChild(captureOverlay);
-            };
+            updateOverlayUI();
 
         } catch (err) {
-            alert("Camera access denied or unavailable.");
+            alert("Camera access denied or unavailable. Please ensure permissions are granted.");
         }
     });
 
@@ -279,12 +324,12 @@ export function renderDoubtSolver(container) {
 
         const isMathMode = mathToggle.checked;
         solveBtn.disabled = true;
-        solveBtn.innerHTML = isMathMode ? '🧮 Computing Step-by-Step...' : '🧠 Thinking...';
+        solveBtn.innerHTML = isMathMode ? '<span class="loading-spinner" style="width:16px; height:16px; border:2px solid #fff; border-top:2px solid transparent; border-radius:50%; display:inline-block; animation:spin 1s linear infinite; margin-right:8px;"></span> Computing Step-by-Step...' : '<span style="display:inline-block; animation:spin 2s linear infinite; margin-right:8px;">🧠</span> Thinking...';
 
         output.innerHTML = `
             <div class="card-premium animate-pulse" style="padding: 24px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <div class="skeleton" style="width: 20px; height: 20px; border-radius: 50%;"></div>
+                    <div class="loading-spinner" style="width: 20px; height: 20px; border: 3px solid var(--accent-cyan-dim); border-top: 3px solid var(--accent-cyan); border-radius: 50%; animation: spin 1s linear infinite;"></div>
                     <div id="solver-status-text" style="color: var(--text-secondary); font-size: 0.9rem;">
                         ${selectedImageBase64 ? 'Analyzing Visual Input...' : (isMathMode ? 'Initializing Reasoning Engine...' : 'Consulting AI Knowledge Base...')}
                     </div>
