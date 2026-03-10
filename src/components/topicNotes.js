@@ -820,7 +820,10 @@ Use proper mathematical unicode symbols (like √, x², ÷) or format equations 
             console.error("[Notes] Pollinations error:", e);
             notesHTML = `<div class="callout callout-error"><div class="callout-icon">⚠️</div><div><strong>Pollinations AI Service Unavailable</strong><p>${e.message}</p></div></div>`;
           }
-          if (output.dataset.currentTopic === topic) renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, true, null);
+          if (output.dataset.currentTopic === topic) {
+            output.dataset.notesStatus = 'complete';
+            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false, null);
+          }
         })();
 
         // === VISUAL GENERATION: Multi-Source Pipeline (Pollinations AI + Wikipedia) ===
@@ -862,15 +865,12 @@ Use proper mathematical unicode symbols (like √, x², ÷) or format equations 
             aiRealWorldImgUrls = [...wikiDiagrams.slice(3, 6), ...aiRealWorldImgUrls].slice(0, 4);
           }
 
-          const progress = output.querySelector('#gen-progress-bar');
-          if (progress) progress.style.width = '90%';
-          output.dataset.notesStatus = 'complete';
-          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
+          const isActuallyDone = output.dataset.notesStatus === 'complete';
+          renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, !isActuallyDone);
         }).catch(() => {
           if (output.dataset.currentTopic === topic) {
-            const progress = output.querySelector('#gen-progress-bar');
-            if (progress) progress.style.width = '90%';
-            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, false);
+            const isActuallyDone = output.dataset.notesStatus === 'complete';
+            renderFullUI(notesHTML, aiDiagrams, aiScientificGraphs, aiRealWorldImgUrls, !isActuallyDone);
           }
         });
 
