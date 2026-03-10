@@ -690,33 +690,59 @@ async function generateNotes(output, course, unit, topic, level, getPrerequisite
     if (useAI) {
       const isAdvanced = level === 'advanced_level';
       const prompt = isAdvanced
-        ? `Generate comprehensive GATE/advanced-level academic notes for the topic: "${topic}" in the course "${course.title}".
-Include:
-- Precise technical definition with mathematical rigour
-- Full derivation from first principles, with each step explained
-- Key theorems, proofs, or laws related to this topic
-- Industrial and real-world engineering applications (3-4 specific examples)
+        ? `You are a GATE exam expert. Generate CONCISE GATE-level notes for: "${topic}" in "${course.title}".
 
-### Solved Example Problems (Easy to Advanced — 4 to 5 problems)
-Provide exactly **5 solved numerical/conceptual problems** in increasing difficulty:
-  1. **Problem 1 (Easy – 2 marks):** A basic definitional or substitution problem. Show full working.
-  2. **Problem 2 (Moderate – 4 marks):** Requires applying the formula with standard values. Show full working.
-  3. **Problem 3 (Intermediate – 6 marks):** Multi-step derivation or application. Show complete solution with explanation.
-  4. **Problem 4 (Hard – 8 marks):** Combines two or more concepts. Requires analytical thinking. Show full working.
-  5. **Problem 5 (GATE-Level – 10 marks):** Complex problem involving edge cases, special conditions, or proof. Show rigorous solution.
+KEEP IT SHORT. Max 400 words for theory. Bullet points only — no long paragraphs.
 
-- Common university exam questions (2m, 6m, 10m formats)
-- Special cases, boundary conditions, and assumptions
-Use simple math symbols only (e.g., √ for square root, ^ for power, / for fraction). Do NOT use LaTeX. Format in standard Markdown.`
-        : `Generate comprehensive academic notes for the topic: "${topic}" in the course "${course.title}". 
-Include:
-- Detailed definition and conceptual overview
-- **Industrial and Real-World Applications** (Provide 3-4 specific examples of where this is used in modern technology or engineering)
-- Key mathematical formulas with thorough variable explanations
-- Core working principles or scientific theories
-- 2-3 step-by-step solved derivation points or logical proofs
-- Common exam questions (2m, 6m, 10m formats)
-Use professional PSG Tech level technical language. Format using standard Markdown (### for headings, ** for bold, - for lists). Do NOT use HTML tags.`;
+## 1. Core Concept (3-4 lines max)
+Precise technical definition + key insight.
+
+## 2. Key Formulas
+List each formula with variable meanings. One line per formula.
+
+## 3. Difficult Example Problems (Step-by-Step like a coding tutorial)
+Provide exactly **3 hard problems** students struggle with. For EACH:
+- **Problem:** Clear GATE-style question with all values given.
+- **Step 1:** What to do first (explain simply).
+- **Step 2:** Actual calculation.
+- **Step 3+:** Continue step-by-step until solved.
+- **Answer:** Box the final answer clearly.
+
+Make them: Intermediate → Hard → GATE-Level difficulty.
+
+## 4. Exam Tips
+- 3 key points that appear in GATE/university exams
+- Common traps and mistakes to avoid
+
+Use simple math symbols (√, ^, /). NO LaTeX. Markdown format only.`
+        : `You are a PSG Tech university professor. Generate CONCISE academic notes for: "${topic}" in "${course.title}".
+
+KEEP IT SHORT AND CLEAR. Max 350 words for theory. Use bullet points, not paragraphs.
+
+## 1. Definition (2-3 lines max)
+Simple, precise definition.
+
+## 2. Key Formula(s)
+List formulas. One line per formula with variable meanings.
+
+## 3. Real-World Application (1-2 lines only)
+Say where it is actually used in real life.
+
+## 4. Difficult Example Problems (Step-by-Step like a coding tutorial)
+Provide exactly **3 problems** that students struggle with. For EACH:
+- **Problem:** Write a clear, exam-style question.
+- **Step 1:** (explain this step simply)
+- **Step 2:** (next step with calculation)
+- Continue steps until fully solved.
+- **Final Answer:** State clearly.
+
+Problem 1 = tricky application, Problem 2 = multi-step, Problem 3 = hardest exam-type.
+
+## 5. Quick Exam Tips
+- 2-3 bullet points on what to remember in exams
+- Common mistakes to avoid
+
+Format using Markdown (### headings, ** bold, - lists). Do NOT use HTML tags. Do NOT use LaTeX.`;
 
       try {
         // Fetch text notes in background
